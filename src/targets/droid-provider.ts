@@ -77,6 +77,14 @@ export function inferDroidProviderFromBaseUrl(
   }
 
   if (
+    pathname.includes('/compatible-mode') ||
+    pathname.includes('/openai') ||
+    pathname.includes('/chat/completions')
+  ) {
+    return 'generic-chat-completion-api';
+  }
+
+  if (
     host.includes('anthropic.com') ||
     pathname.includes('/anthropic') ||
     host.includes('ollama.com')
@@ -91,10 +99,7 @@ export function inferDroidProviderFromBaseUrl(
     host.includes('api.fireworks.ai') ||
     host.includes('inference.baseten.co') ||
     host.includes('dashscope') ||
-    host.includes('huggingface.co') ||
-    pathname.includes('/compatible-mode') ||
-    pathname.includes('/openai') ||
-    pathname.includes('/chat/completions')
+    host.includes('huggingface.co')
   ) {
     return 'generic-chat-completion-api';
   }

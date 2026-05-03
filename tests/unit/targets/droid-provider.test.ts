@@ -99,5 +99,11 @@ describe('droid-provider', () => {
       expect(resolveDroidProvider({ baseUrl: 'https://ollama.com' })).toBe('anthropic');
       expect(resolveDroidProvider({ baseUrl: 'https://ollama.com/v1/messages' })).toBe('anthropic');
     });
+
+    it('routes ollama.com /chat/completions to generic', () => {
+      expect(
+        resolveDroidProvider({ baseUrl: 'https://ollama.com/v1/chat/completions' })
+      ).toBe('generic-chat-completion-api');
+    });
   });
 });
