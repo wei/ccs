@@ -76,7 +76,11 @@ export function inferDroidProviderFromBaseUrl(
     return 'openai';
   }
 
-  if (host.includes('anthropic.com') || pathname.includes('/anthropic')) {
+  if (
+    host.includes('anthropic.com') ||
+    pathname.includes('/anthropic') ||
+    host.includes('ollama.com')
+  ) {
     return 'anthropic';
   }
 
