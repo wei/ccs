@@ -50,4 +50,33 @@ describe('resolveOpenAICompatProfileConfig', () => {
     expect(result?.provider).toBe('generic-chat-completion-api');
     expect(result?.model).toBe('qwen3.6-plus');
   });
+
+  it('does not proxy bare ollama.com profiles that are anthropic-native', () => {
+    const result = resolveOpenAICompatProfileConfig(
+      'ollama-cloud',
+      '/tmp/ollama-cloud.settings.json',
+      {
+        ANTHROPIC_BASE_URL: 'https://ollama.com',
+        ANTHROPIC_AUTH_TOKEN: 'ollama-token',
+        ANTHROPIC_MODEL: 'qwen3-coder-plus',
+      }
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('still proxies explicit ollama.com chat-completions endpoints', () => {
+    const result = resolveOpenAICompatProfileConfig(
+      'ollama-cloud-chat-completions',
+      '/tmp/ollama-cloud-chat-completions.settings.json',
+      {
+        ANTHROPIC_BASE_URL: 'https://ollama.com/v1/chat/completions',
+        ANTHROPIC_AUTH_TOKEN: 'ollama-token',
+        ANTHROPIC_MODEL: 'qwen3-coder-plus',
+      }
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.provider).toBe('generic-chat-completion-api');
+  });
 });

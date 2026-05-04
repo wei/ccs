@@ -100,10 +100,25 @@ describe('droid-provider', () => {
       expect(resolveDroidProvider({ baseUrl: 'https://ollama.com/v1/messages' })).toBe('anthropic');
     });
 
-    it('routes ollama.com /chat/completions to generic', () => {
+    it('keeps ollama.com anthropic even for generic model families', () => {
       expect(
-        resolveDroidProvider({ baseUrl: 'https://ollama.com/v1/chat/completions' })
-      ).toBe('generic-chat-completion-api');
+        resolveDroidProvider({
+          baseUrl: 'https://ollama.com',
+          model: 'qwen3-coder-plus',
+        })
+      ).toBe('anthropic');
+      expect(
+        resolveDroidProvider({
+          baseUrl: 'https://ollama.com/v1/messages',
+          model: 'deepseek-v3.1',
+        })
+      ).toBe('anthropic');
+    });
+
+    it('routes ollama.com /chat/completions to generic', () => {
+      expect(resolveDroidProvider({ baseUrl: 'https://ollama.com/v1/chat/completions' })).toBe(
+        'generic-chat-completion-api'
+      );
     });
   });
 });
