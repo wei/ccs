@@ -78,6 +78,15 @@ describe('resolveActiveProfile', () => {
     expect(stderrMessages.some((m) => m.includes('codex-auth'))).toBe(true);
   });
 
+  it('throws when CCS_CODEX_PROFILE is set and registry YAML is corrupt', () => {
+    fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+    fs.writeFileSync(registryPath, '{ invalid yaml: [[[', { mode: 0o600 });
+
+    expect(() => resolveActiveProfile({ CCS_CODEX_PROFILE: 'work' })).toThrow(
+      /Refusing to fall back to ~\/\.codex/
+    );
+  });
+
   it('returns source=env when CCS_CODEX_PROFILE matches a registry entry', () => {
     const profileDir = makeProfileDir('work');
     writeRegistry({
@@ -132,28 +141,20 @@ describe('resolveActiveProfile', () => {
     expect(result?.source).toBe('env');
   });
 
-  it('returns null and warns when CCS_CODEX_PROFILE names a profile not in registry', () => {
+  it('throws when CCS_CODEX_PROFILE names a profile not in registry', () => {
     writeRegistry({
       version: '1.0',
       default: null,
       profiles: {},
     });
 
-    const stderrMessages: string[] = [];
-    const origWrite = process.stderr.write.bind(process.stderr);
-    const spy = spyOn(process.stderr, 'write').mockImplementation(
-      (msg: string | Uint8Array, ...rest: unknown[]) => {
-        stderrMessages.push(typeof msg === 'string' ? msg : String(msg));
-        return origWrite(msg as string, ...(rest as Parameters<typeof origWrite>).slice(1));
-      }
+    expect(() => resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost' })).toThrow(
+      /CCS_CODEX_PROFILE='ghost'/
     );
+  });
 
-    const result = resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost' });
-
-    spy.mockRestore();
-
-    expect(result).toBeNull();
-    expect(stderrMessages.some((m) => m.includes('ghost'))).toBe(true);
+  it('throws when CCS_CODEX_PROFILE is set but registry file is missing', () => {
+    expect(() => resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost' })).toThrow(/does not exist/);
   });
 
   it('treats empty/whitespace-only CCS_CODEX_PROFILE as unset, falls back to default', () => {

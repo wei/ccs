@@ -9,7 +9,7 @@
  * Cases:
  *  - Empty registry → resolveActiveProfile returns null (legacy mode)
  *  - Missing registry file → returns null (no registry = legacy mode)
- *  - CCS_CODEX_PROFILE set but registry missing → returns null + stderr warning
+ *  - CCS_CODEX_PROFILE set but registry missing or unmatched → throws to avoid unsafe fallback
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
@@ -74,7 +74,7 @@ describe('legacy fallback — empty registry', () => {
 });
 
 describe('legacy fallback — CCS_CODEX_PROFILE set but no matching profile', () => {
-  it('returns null and emits warning when env points to non-existent profile', async () => {
+  it('throws when env points to non-existent profile', async () => {
     // Create registry with no profiles
     const registryPath = path.join(ccsHome, '.ccs', 'codex-profiles.yaml');
     fs.mkdirSync(path.dirname(registryPath), { recursive: true });
@@ -82,29 +82,19 @@ describe('legacy fallback — CCS_CODEX_PROFILE set but no matching profile', ()
       mode: 0o600,
     });
 
-    const stderrLines: string[] = [];
-    const origWrite = process.stderr.write.bind(process.stderr);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    process.stderr.write = (chunk: any): boolean => {
-      stderrLines.push(String(chunk));
-      return true;
-    };
+    const { resolveActiveProfile } = await import('../../../src/codex-auth/resolve-active-profile');
+    expect(() => resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost-profile' })).toThrow(
+      /ghost-profile/
+    );
+  });
 
-    let result;
-    try {
-      const { resolveActiveProfile } = await import(
-        '../../../src/codex-auth/resolve-active-profile'
-      );
-      result = resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost-profile' });
-    } finally {
-      process.stderr.write = origWrite;
-    }
+  it('throws when env is set but registry file is missing', async () => {
+    const registryPath = path.join(ccsHome, '.ccs', 'codex-profiles.yaml');
+    expect(fs.existsSync(registryPath)).toBe(false);
 
-    // Should fall back to null (not throw)
-    expect(result).toBeNull();
-
-    // Warning emitted to stderr about missing profile
-    const allStderr = stderrLines.join('');
-    expect(allStderr).toContain('ghost-profile');
+    const { resolveActiveProfile } = await import('../../../src/codex-auth/resolve-active-profile');
+    expect(() => resolveActiveProfile({ CCS_CODEX_PROFILE: 'ghost-profile' })).toThrow(
+      /does not exist/
+    );
   });
 });

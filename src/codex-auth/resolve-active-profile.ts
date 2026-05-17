@@ -1,7 +1,7 @@
 /**
  * Synchronous hot-path resolver for the active codex auth profile. <5ms typical.
  * Precedence: CCS_CODEX_PROFILE env → registry.default → null (legacy ~/.codex).
- * Errors degrade gracefully — never throw.
+ * Legacy fallback is allowed only when no explicit CCS_CODEX_PROFILE was requested.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,6 +14,13 @@ export interface ResolvedProfile {
   source: 'env' | 'default';
 }
 
+export class CodexAuthProfileResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CodexAuthProfileResolutionError';
+  }
+}
+
 interface RegistryShape {
   version?: string;
   default?: string | null;
@@ -23,23 +30,41 @@ interface RegistryShape {
 /** @param env - Process env map; defaults to process.env. Injectable for tests. */
 export function resolveActiveProfile(env: NodeJS.ProcessEnv = process.env): ResolvedProfile | null {
   const registryPath = getCodexAuthRegistryPath();
+  const envName = (env.CCS_CODEX_PROFILE ?? '').trim();
 
   // F4: silent fallback — no registry means no profiles, legacy mode
-  if (!fs.existsSync(registryPath)) return null;
+  if (!fs.existsSync(registryPath)) {
+    if (envName) {
+      throw new CodexAuthProfileResolutionError(
+        `CCS_CODEX_PROFILE='${envName}' is set but ${registryPath} does not exist. Refusing to fall back to ~/.codex.`
+      );
+    }
+    return null;
+  }
 
   let registry: RegistryShape;
   try {
     const raw = fs.readFileSync(registryPath, 'utf8');
     const parsed = yaml.load(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      process.stderr.write(
-        `[!] codex-auth: registry at ${registryPath} is not a valid YAML object, falling back to ~/.codex\n`
-      );
+      const msg = `registry at ${registryPath} is not a valid YAML object`;
+      if (envName) {
+        throw new CodexAuthProfileResolutionError(
+          `CCS_CODEX_PROFILE='${envName}' is set but ${msg}. Refusing to fall back to ~/.codex.`
+        );
+      }
+      process.stderr.write(`[!] codex-auth: ${msg}, falling back to ~/.codex\n`);
       return null;
     }
     registry = parsed as RegistryShape;
   } catch (err) {
+    if (err instanceof CodexAuthProfileResolutionError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
+    if (envName) {
+      throw new CodexAuthProfileResolutionError(
+        `CCS_CODEX_PROFILE='${envName}' is set but registry YAML is corrupt at ${registryPath} (${msg}). Refusing to fall back to ~/.codex.`
+      );
+    }
     process.stderr.write(
       `[!] codex-auth: registry YAML corrupt at ${registryPath} (${msg}), falling back to ~/.codex\n`
     );
@@ -49,13 +74,11 @@ export function resolveActiveProfile(env: NodeJS.ProcessEnv = process.env): Reso
   const profiles = registry.profiles ?? {};
 
   // F2: explicit env override
-  const envName = (env.CCS_CODEX_PROFILE ?? '').trim();
   if (envName) {
     if (!Object.prototype.hasOwnProperty.call(profiles, envName)) {
-      process.stderr.write(
-        `[!] codex-auth: CCS_CODEX_PROFILE='${envName}' not found in registry, falling back to ~/.codex\n`
+      throw new CodexAuthProfileResolutionError(
+        `CCS_CODEX_PROFILE='${envName}' not found in registry. Refusing to fall back to ~/.codex.`
       );
-      return null;
     }
     return {
       name: envName,

@@ -62,8 +62,12 @@ export async function main(argv: string[]): Promise<number> {
         }
       }
     } catch (resolverErr) {
-      // Resolver module threw unexpectedly — degrade silently to legacy mode
       const msg = resolverErr instanceof Error ? resolverErr.message : String(resolverErr);
+      if (resolverErr instanceof Error && resolverErr.name === 'CodexAuthProfileResolutionError') {
+        process.stderr.write(`[X] codex-auth: ${msg}\n`);
+        return 1;
+      }
+      // Resolver module threw unexpectedly — degrade to legacy mode.
       process.stderr.write(`[!] codex-auth: profile resolution skipped (${msg})\n`);
     }
   }

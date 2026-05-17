@@ -143,6 +143,37 @@ describe('codex-runtime router — non-auth profile resolution', () => {
     expect(code).toBe(-1); // CCS branch: entry must not call process.exit()
   });
 
+  it('fails fast when CCS_CODEX_PROFILE points to a missing registry profile', async () => {
+    writeRegistry({
+      version: '1.0',
+      default: null,
+      profiles: {},
+    });
+    process.env.CCS_CODEX_PROFILE = 'ghost';
+
+    const stderrMessages: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: string | Uint8Array): boolean => {
+      stderrMessages.push(typeof chunk === 'string' ? chunk : String(chunk));
+      return true;
+    };
+
+    try {
+      require.cache[ccsPath] = { exports: {} } as NodeJS.Module;
+      flushRouterCache();
+      require.cache[ccsPath] = { exports: {} } as NodeJS.Module;
+
+      const { main } = require(routerPath) as { main: (argv: string[]) => Promise<number> };
+      const code = await main(['node', 'codex-runtime', 'chat']);
+
+      expect(code).toBe(1);
+      expect(process.env.CODEX_HOME).toBeUndefined();
+      expect(stderrMessages.join('')).toContain("CCS_CODEX_PROFILE='ghost'");
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
   it('preserves an explicit CODEX_HOME already in env — does not overwrite', async () => {
     const explicitHome = path.join(tempDir, 'explicit-codex-home');
     fs.mkdirSync(explicitHome, { recursive: true });
