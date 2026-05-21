@@ -68,6 +68,7 @@ describe('provider presentation metadata', () => {
       'gitlab',
       'codebuddy',
       'kilo',
+      'qoder',
     ]);
     expect(getProviderSection('gitlab')?.id).toBe('plus-extra');
     expect(getProviderSection('gemini')?.id).toBe('core');
