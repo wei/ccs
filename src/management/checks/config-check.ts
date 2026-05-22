@@ -9,6 +9,11 @@ import { HealthCheck, IHealthChecker, createSpinner } from './types';
 
 import { getClaudeConfigDir } from '../../utils/claude-config-path';
 import { getCcsDir } from '../../config/config-loader-facade';
+import {
+  CODEX_TRANSLATOR_URL_MARKER,
+  findCodexTranslatorUrlPaths,
+  formatSettingsPathList,
+} from '../../shared/stale-codex-translator-settings';
 
 const ora = createSpinner();
 
@@ -219,20 +224,18 @@ export class ClaudeSettingsChecker implements IHealthChecker {
     // Validate JSON
     try {
       const content = fs.readFileSync(settingsPath, 'utf8');
-      const settings = JSON.parse(content) as {
-        env?: Record<string, unknown>;
-      };
-      const baseUrl =
-        settings.env && typeof settings.env.ANTHROPIC_BASE_URL === 'string'
-          ? settings.env.ANTHROPIC_BASE_URL
-          : '';
-      if (baseUrl.includes('/api/provider/codex')) {
+      const settings = JSON.parse(content) as unknown;
+      const codexTranslatorUrlPaths = findCodexTranslatorUrlPaths(settings);
+      if (codexTranslatorUrlPaths.length > 0) {
+        const formattedPaths = formatSettingsPathList(codexTranslatorUrlPaths);
         spinner.warn();
-        console.log(`  ${warn(settingsName.padEnd(22))}  Codex CLIProxy bridge persisted`);
+        console.log(
+          `  ${warn(settingsName.padEnd(22))}  Codex CLIProxy bridge persisted at ${formattedPaths}`
+        );
         results.addCheck(
           'Claude Settings',
           'warning',
-          'Claude settings route Claude Code through the Codex CLIProxy translator',
+          `Claude settings route Claude Code through the Codex CLIProxy translator at ${formattedPaths} (${CODEX_TRANSLATOR_URL_MARKER})`,
           'Run: ccs persist default --yes; use ccsxp or ccs codex --target codex for Codex'
         );
         return;
