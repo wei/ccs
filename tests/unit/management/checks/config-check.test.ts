@@ -57,4 +57,61 @@ describe('ClaudeSettingsChecker', () => {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it('warns with safe path-level evidence for nested Codex translator settings', async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-config-check-'));
+    originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CLAUDE_CONFIG_DIR;
+
+    try {
+      await runWithScopedCcsHome(tempRoot, async () => {
+        const staleUrl = 'https://proxy.example.com/api/provider/codex/v1/messages';
+        const settingsPath = path.join(tempRoot, '.claude', 'settings.json');
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(
+          settingsPath,
+          JSON.stringify(
+            {
+              env: {
+                KEEP_ME: 'safe',
+              },
+              hooks: {
+                PostToolUse: [
+                  {
+                    config: {
+                      endpoint: staleUrl,
+                    },
+                  },
+                ],
+              },
+            },
+            null,
+            2
+          ) + '\n'
+        );
+
+        const originalConsoleLog = console.log;
+        const capturedLogs: string[] = [];
+        console.log = (...args: unknown[]) => {
+          capturedLogs.push(args.map((arg) => String(arg)).join(' '));
+        };
+        try {
+          const results = new HealthCheck();
+          new ClaudeSettingsChecker().run(results);
+
+          expect(results.warnings).toHaveLength(1);
+          expect(results.warnings[0].message).toContain(
+            'hooks.PostToolUse[0].config.endpoint'
+          );
+          expect(results.warnings[0].message).not.toContain(staleUrl);
+          expect(capturedLogs.join('\n')).toContain('hooks.PostToolUse[0].config.endpoint');
+          expect(capturedLogs.join('\n')).not.toContain(staleUrl);
+        } finally {
+          console.log = originalConsoleLog;
+        }
+      });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 });

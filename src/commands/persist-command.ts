@@ -18,6 +18,11 @@ import ProfileDetector from '../auth/profile-detector';
 import { getClaudeConfigDir, getClaudeSettingsPath } from '../utils/claude-config-path';
 import { extractOption, hasAnyFlag } from './arg-extractor';
 import { resolveClaudeExtensionSetup } from '../shared/claude-extension-setup';
+import {
+  CODEX_TRANSLATOR_URL_MARKER,
+  findCodexTranslatorUrlPaths,
+  formatSettingsPathList,
+} from '../shared/stale-codex-translator-settings';
 
 interface PersistCommandArgs {
   profile?: string;
@@ -64,7 +69,6 @@ const PERSIST_LOCK_STALE_MS = 10000;
 const PERSIST_LOCK_RETRIES = 5;
 const PERSIST_LOCK_RETRY_MIN_MS = 100;
 const PERSIST_LOCK_RETRY_MAX_MS = 500;
-const CODEX_TRANSLATOR_URL_MARKER = '/api/provider/codex';
 const NATIVE_CODEX_TARGETS = ['ccsxp', 'ccs codex --target codex'];
 
 type PermissionMode = (typeof VALID_PERMISSION_MODES)[number];
@@ -521,38 +525,6 @@ function isSensitiveEnvKey(key: string): boolean {
   );
 }
 
-function formatSettingsPathSegment(basePath: string, segment: string | number): string {
-  if (typeof segment === 'number') {
-    return `${basePath}[${segment}]`;
-  }
-
-  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)) {
-    return basePath ? `${basePath}.${segment}` : segment;
-  }
-
-  return `${basePath}[${JSON.stringify(segment)}]`;
-}
-
-function findCodexTranslatorUrlPaths(value: unknown, path = ''): string[] {
-  if (typeof value === 'string') {
-    return value.includes(CODEX_TRANSLATOR_URL_MARKER) ? [path || '(root)'] : [];
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) =>
-      findCodexTranslatorUrlPaths(item, formatSettingsPathSegment(path, index))
-    );
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    return Object.entries(value).flatMap(([key, item]) =>
-      findCodexTranslatorUrlPaths(item, formatSettingsPathSegment(path, key))
-    );
-  }
-
-  return [];
-}
-
 function buildPersistReceipt(
   existingEnv: Record<string, string>,
   existingSettings: Record<string, unknown>,
@@ -609,14 +581,6 @@ function buildPersistReceipt(
 
 function formatKeyList(keys: string[]): string {
   return keys.length > 0 ? keys.join(', ') : 'none';
-}
-
-function formatSettingsPathList(paths: string[]): string {
-  const visiblePaths = paths.slice(0, 5);
-  const remainingCount = paths.length - visiblePaths.length;
-  return remainingCount > 0
-    ? `${visiblePaths.join(', ')} (+${remainingCount} more)`
-    : visiblePaths.join(', ');
 }
 
 function printPersistReceipt(receipt: PersistReceipt): void {
