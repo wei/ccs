@@ -56,6 +56,20 @@ describe('isClaudeSubcommandInvocation', () => {
     expect(isClaudeSubcommandInvocation(['--name', 'auth'])).toBe(false);
   });
 
+
+  it('treats --print prompt mode as non-subcommand even with subcommand-like prompt text', () => {
+    expect(isClaudeSubcommandInvocation(['--print', 'agents'])).toBe(false);
+    expect(isClaudeSubcommandInvocation(['--print', 'doctor'])).toBe(false);
+  });
+
+  it('treats -p (short form of --print) as non-subcommand — regression for #1341', () => {
+    // CCS uses -p in headless-executor; without this check the security bypass
+    // survived via the short flag form.
+    expect(isClaudeSubcommandInvocation(['-p', 'agents'])).toBe(false);
+    expect(isClaudeSubcommandInvocation(['-p', 'doctor'])).toBe(false);
+    expect(isClaudeSubcommandInvocation(['-p'])).toBe(false);
+  });
+
   it('handles --flag=value forms', () => {
     expect(isClaudeSubcommandInvocation(['--model=sonnet', 'agents'])).toBe(true);
   });
@@ -199,6 +213,19 @@ describe('subcommand passthrough — injectors short-circuit', () => {
   it('appendBrowserToolArgs returns args unchanged for subcommand invocations', () => {
     expect(appendBrowserToolArgs(['agents'])).toEqual(['agents']);
     expect(appendBrowserToolArgs(['remote-control'])).toEqual(['remote-control']);
+  });
+
+
+  it('injectors still inject in --print prompt mode with subcommand-like prompt text', () => {
+    const out = appendThirdPartyWebSearchToolArgs(['--print', 'agents']);
+    expect(out).toContain('--append-system-prompt');
+    expect(out).toContain('--disallowedTools');
+  });
+
+  it('injectors still inject in -p prompt mode — regression for #1341', () => {
+    const out = appendThirdPartyWebSearchToolArgs(['-p', 'agents']);
+    expect(out).toContain('--append-system-prompt');
+    expect(out).toContain('--disallowedTools');
   });
 
   it('injectors still inject for non-subcommand interactive launches', () => {

@@ -392,6 +392,26 @@ describe('model-pricing', () => {
       expect(pricing.outputPerMillion).toBe(0);
     });
 
+    it('ignores malformed models.dev entries during provider-aware lookups', () => {
+      setCachedModelsDevRegistry({
+        openai: {
+          id: 'openai',
+          name: 'OpenAI',
+          models: {
+            bad: null as unknown as never,
+            'gpt-4o': {
+              id: 'gpt-4o',
+              name: 'GPT-4o',
+              cost: { input: 2.5, output: 10 },
+            },
+          },
+        },
+      });
+
+      expect(() => getModelPricing('gpt-4o', { provider: 'openai' })).not.toThrow();
+      expect(getModelPricing('gpt-4o', { provider: 'openai' }).inputPerMillion).toBe(2.5);
+    });
+
     it('prefers provider-aware models.dev pricing over exact static table matches', () => {
       const pricing = getModelPricing('gpt-4o', { provider: 'github-copilot' });
       expect(pricing.inputPerMillion).toBe(0);
@@ -446,6 +466,23 @@ describe('model-pricing', () => {
 
       expect(calculateCost(usage, 'gpt-5.5', { provider: 'openai' })).toBe(35.5);
       expect(calculateCost(usage, 'gpt-5.5', { provider: 'ghcp' })).toBe(0);
+    });
+
+    it('gracefully ignores malformed cached model entries', () => {
+      setCachedModelsDevRegistry(
+        {
+          openai: {
+            id: 'openai',
+            models: {
+              'null-entry': null,
+              'gpt-5.5': { id: 'gpt-5.5', cost: { input: 5, output: 30 } },
+            },
+          },
+        } as unknown as Parameters<typeof setCachedModelsDevRegistry>[0]
+      );
+
+      expect(() => getModelPricing('openai/gpt-5.5')).not.toThrow();
+      expect(getModelPricing('openai/gpt-5.5').inputPerMillion).toBe(5);
     });
   });
 });
