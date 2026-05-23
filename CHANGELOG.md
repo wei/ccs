@@ -1,3 +1,106 @@
+## [8.0.0](https://github.com/kaitranntt/ccs/compare/v7.79.1...v8.0.0) (2026-05-23)
+
+### ⚠ BREAKING CHANGES
+
+* **release:** decouple npm @latest from Docker rc.1 soak (REV11) (#1277)
+
+### Features
+
+* add OAuth paste-callback traceability ([1af6625](https://github.com/kaitranntt/ccs/commit/1af6625f5c403a15410906f5a0ee459c2699a57c))
+* **ci:** sunset legacy dashboard image publishing ([9f6e64f](https://github.com/kaitranntt/ccs/commit/9f6e64fd39e3c1c42280676681120aaaeb5cb439))
+* **codex-auth:** add ccsx auth CLI subcommands (create/login/switch/use/show/remove) ([bf92645](https://github.com/kaitranntt/ccs/commit/bf92645b35b48fe844ebe4303dfef5d4312c390a))
+* **codex-auth:** add dashboard Auth Profiles tab + GET /api/codex/profiles ([e99c461](https://github.com/kaitranntt/ccs/commit/e99c4612a85c4f8500f52f6d76b5e55d4fe00e55))
+* **codex-auth:** add import-default migration + integration tests + docs ([631c799](https://github.com/kaitranntt/ccs/commit/631c7993228c30ba29f326f543462beb9a124294))
+* **codex-auth:** add profile registry + storage foundation ([358b703](https://github.com/kaitranntt/ccs/commit/358b703d984cb16f0f7473a2a7bd171f2aa0e43e))
+* **codex-auth:** wire ccsx bin router + ccsxp scope notice ([8c604a0](https://github.com/kaitranntt/ccs/commit/8c604a040ff4aab2f00a87c28ec20c62e8191875))
+* **dashboard:** add Korean language support ([8ad7653](https://github.com/kaitranntt/ccs/commit/8ad7653a2e4015e19c37bddbaddc44cc5cd348fd)), closes [#1206](https://github.com/kaitranntt/ccs/issues/1206) [#1241](https://github.com/kaitranntt/ccs/issues/1241)
+* **docker:** canonical compose.yaml + smoke-test (P2 of [#1251](https://github.com/kaitranntt/ccs/issues/1251)) ([#1258](https://github.com/kaitranntt/ccs/issues/1258)) ([fbaac6a](https://github.com/kaitranntt/ccs/commit/fbaac6a9ba96fb61155248bedd59e2312ad972aa))
+* **docker:** publish ccs:latest + ccs:full integrated images (P1 of [#1251](https://github.com/kaitranntt/ccs/issues/1251)) ([#1257](https://github.com/kaitranntt/ccs/issues/1257)) ([d558cd2](https://github.com/kaitranntt/ccs/commit/d558cd2e36c1d4974e35ebc554ac3478c4570ce8))
+* **docker:** zero-install Docker UX — ccs:latest, ccs:full, canonical compose, ccs-net contract ([#1251](https://github.com/kaitranntt/ccs/issues/1251)) ([#1261](https://github.com/kaitranntt/ccs/issues/1261)) ([9aa854b](https://github.com/kaitranntt/ccs/commit/9aa854bc59bb3735c4a7eaf60b1451f710f86b5d))
+* filter analytics by profile ([f1d655e](https://github.com/kaitranntt/ccs/commit/f1d655e4257a035f1e0910d88d0748002842e0df))
+* report permission mode persist receipt status ([3dc1810](https://github.com/kaitranntt/ccs/commit/3dc1810540050abb8c23c48ab827e8d3e9966959))
+* share stale Codex translator path scanner ([46d73ae](https://github.com/kaitranntt/ccs/commit/46d73ae79f57f799719d07fc0d4a690db4353cb5))
+* support minimal codex effort aliases ([6569eed](https://github.com/kaitranntt/ccs/commit/6569eed15b99f85cf32db15d7a6fbd57b001b326))
+
+### Bug Fixes
+
+* address reviewer findings round 2 ([#1261](https://github.com/kaitranntt/ccs/issues/1261) loop 2) ([#1272](https://github.com/kaitranntt/ccs/issues/1272)) ([adf5a83](https://github.com/kaitranntt/ccs/commit/adf5a836fc548d0c874e20aa79bbcf03b6c64fa6))
+* address upstream reviewer findings + failing CI checks ([#1261](https://github.com/kaitranntt/ccs/issues/1261) loop 1) ([#1271](https://github.com/kaitranntt/ccs/issues/1271)) ([7800474](https://github.com/kaitranntt/ccs/commit/78004746bec22a01876ea083fd754d63f6bafe73)), closes [#1260](https://github.com/kaitranntt/ccs/issues/1260)
+* **browser:** block sensitive header intercept matchers ([a864864](https://github.com/kaitranntt/ccs/commit/a86486497b9cc75970c266929fbcd7a274bc1b18)), closes [#1294](https://github.com/kaitranntt/ccs/issues/1294)
+* **browser:** gate response fulfillment opt-in ([538b644](https://github.com/kaitranntt/ccs/commit/538b6444ff5cdf5109ab15ccc202baec27bff916)), closes [#1295](https://github.com/kaitranntt/ccs/issues/1295)
+* **browser:** redact observed event URLs ([9a2a1dd](https://github.com/kaitranntt/ccs/commit/9a2a1dde31662051d7b0d7b686cc5b6a56af2156)), closes [#1296](https://github.com/kaitranntt/ccs/issues/1296)
+* **browser:** stop recorder leaking sensitive input ([8051f16](https://github.com/kaitranntt/ccs/commit/8051f1614b7dfa3b90eddc0c93eaa14af0138cd0)), closes [#1293](https://github.com/kaitranntt/ccs/issues/1293)
+* **ci:** reviewer loop 6 — REV12 compose image parsing, REV13 fork bypass, REV14 :full audit ([#1278](https://github.com/kaitranntt/ccs/issues/1278)) ([e7ce699](https://github.com/kaitranntt/ccs/commit/e7ce699dc25683b5a9a9b3fe345a8a87a823225b))
+* **ci:** smoke-test failure check + relax service-key guard (REV9, REV10) ([#1276](https://github.com/kaitranntt/ccs/issues/1276)) ([1f736b2](https://github.com/kaitranntt/ccs/commit/1f736b2da9c815cabac36e4b76883ef8a6b1a5cf))
+* **cliproxy:** bound Claude quota error-body reads and preserve timeout ([2f50fe3](https://github.com/kaitranntt/ccs/commit/2f50fe393dfb0ce2cf2d27588948e5e93e4b3a88)), closes [#1300](https://github.com/kaitranntt/ccs/issues/1300)
+* **cliproxy:** cap oauth log parsing size in stats fallback ([b7ba3c7](https://github.com/kaitranntt/ccs/commit/b7ba3c743f3335a84b8476b151763be55688c15e)), closes [#1292](https://github.com/kaitranntt/ccs/issues/1292)
+* **cliproxy:** harden oauth trace snippet redaction ([29eebff](https://github.com/kaitranntt/ccs/commit/29eebff7c50c7287630339358989b4a095b95ebb))
+* **cliproxy:** redact AI provider header secrets ([#1268](https://github.com/kaitranntt/ccs/issues/1268)) ([ece43fc](https://github.com/kaitranntt/ccs/commit/ece43fc30e735c385098cd20350cb7b4bf9568f9))
+* **cliproxy:** redact token-like oauth trace snippets ([a526eb4](https://github.com/kaitranntt/ccs/commit/a526eb469aea22b7fe47baa4d2b9663ca9c1a876))
+* **codex-auth:** address persistent review focus ([e461c7a](https://github.com/kaitranntt/ccs/commit/e461c7a67e1500e28a7fa8266cd90b80212c760b))
+* **codex-auth:** address review focus areas ([211e51b](https://github.com/kaitranntt/ccs/commit/211e51b94914a25f1f5e4c4ba95dffadef94f94c))
+* **codex-auth:** close local review gaps ([8552101](https://github.com/kaitranntt/ccs/commit/85521018bf29696460f07610661cbad878de69b6))
+* **codex-auth:** close remaining review gaps ([5c79df4](https://github.com/kaitranntt/ccs/commit/5c79df4311de16dbc25eade6e124f201ad26917c))
+* **codex-auth:** fail closed on registry corruption ([2cd2d43](https://github.com/kaitranntt/ccs/commit/2cd2d43186afc64abe7e8cb8e54c6a8907b9fa60))
+* **codex-auth:** fail fast on missing active profile ([08fe63c](https://github.com/kaitranntt/ccs/commit/08fe63c6262cac61ce241ce573b107539997281e))
+* **codex-auth:** harden profile review findings ([a3fe2c6](https://github.com/kaitranntt/ccs/commit/a3fe2c63d8fefe533e5e2a85dc1cbfddf45cd7f7))
+* **codex-auth:** harden registry fail-closed paths ([81c4acc](https://github.com/kaitranntt/ccs/commit/81c4acc73a50a041c54e0523808f9233b826a526))
+* **codex-auth:** reject stray profile args ([c90b3cb](https://github.com/kaitranntt/ccs/commit/c90b3cb9da0e25ca119cbd92000d62aef708cd90))
+* **codex-auth:** remove unused React import causing UI build failure ([4e7d648](https://github.com/kaitranntt/ccs/commit/4e7d648967eeec8ab8d74a511f4dce95d965d8d9))
+* **codex-auth:** surface registry corruption ([54738e8](https://github.com/kaitranntt/ccs/commit/54738e88f78bc3a38bc985daad8a723276347693))
+* **codex:** normalize native cliproxy tuning aliases ([#1254](https://github.com/kaitranntt/ccs/issues/1254)) ([609bed0](https://github.com/kaitranntt/ccs/commit/609bed0c39551ccdafea6a8de5d9f4cc38eca01f))
+* **codex:** pass ccsx resume through to native codex ([5a54c1b](https://github.com/kaitranntt/ccs/commit/5a54c1b536fe228c29754ed20be81149d51be4da)), closes [#1287](https://github.com/kaitranntt/ccs/issues/1287)
+* **codex:** pass native ccsx subcommands through ([#1290](https://github.com/kaitranntt/ccs/issues/1290)) ([8a37578](https://github.com/kaitranntt/ccs/commit/8a375787025b434a5415d5ffac9df919e13139f4))
+* **codex:** preserve custom ccsxp cliproxy base URLs ([d68ee37](https://github.com/kaitranntt/ccs/commit/d68ee37590f8de7d77c5d7e26cfbe5dd3647ae83)), closes [#1281](https://github.com/kaitranntt/ccs/issues/1281)
+* **dispatcher:** preserve --permission-mode for `claude agents` subcommand ([ef4b746](https://github.com/kaitranntt/ccs/commit/ef4b746876412cafaddb8745d243fb31887abcde))
+* **docker:** apply red-team findings — drop :full, rc.1 soak, healthcheck, signing ([#1251](https://github.com/kaitranntt/ccs/issues/1251)) ([#1262](https://github.com/kaitranntt/ccs/issues/1262)) ([107b5b5](https://github.com/kaitranntt/ccs/commit/107b5b5db49e19369b02324b6bf87322671a9afd))
+* **docker:** harden integrated service exposure ([857dac8](https://github.com/kaitranntt/ccs/commit/857dac8751a759483a03e05247d711e3992dddb1)), closes [#1291](https://github.com/kaitranntt/ccs/issues/1291)
+* ensure dashboard cliproxy restart waits for recovery ([fc5851e](https://github.com/kaitranntt/ccs/commit/fc5851e3a24a30437a07ed82546a61186ac56379))
+* **logging:** redact CLI argv in lifecycle start logs ([100308a](https://github.com/kaitranntt/ccs/commit/100308a3cfb05673c65c4703f8d183cccfdf5d97)), closes [#1297](https://github.com/kaitranntt/ccs/issues/1297)
+* mask Docker key rotation banner ([bbcf9e8](https://github.com/kaitranntt/ccs/commit/bbcf9e8b156301ce3ec74decc7e650c6d0ea2df7))
+* normalize ccsxp codex model flag aliases ([6bc04de](https://github.com/kaitranntt/ccs/commit/6bc04dee97eb7a816912b840d1961b4ff1481ece))
+* pause exhausted CLIProxy rotation accounts ([923bfee](https://github.com/kaitranntt/ccs/commit/923bfee6fa2e890a42575e3f9327ee058dae40ff)), closes [#1337](https://github.com/kaitranntt/ccs/issues/1337)
+* **persist:** block codex claude settings bridge ([3b20164](https://github.com/kaitranntt/ccs/commit/3b2016462a249ead3ce540229f941eada27b8ff1))
+* **persist:** print recovery receipt after settings write ([#1302](https://github.com/kaitranntt/ccs/issues/1302)) ([67fe6d9](https://github.com/kaitranntt/ccs/commit/67fe6d9c7f832b561e7ab62ef00729b020e33a56))
+* preserve Docker legacy API key during rotation ([30971eb](https://github.com/kaitranntt/ccs/commit/30971ebb281e3afaf7e7668f346c6abf30c7c8e0))
+* prevent Docker dashboard from orphaning CLIProxy ([acf9fd6](https://github.com/kaitranntt/ccs/commit/acf9fd690a17878733150cfe0a4609aa09aed014))
+* **proxy:** require owned daemon PID before reusing legacy/profile proxy session ([fa31bea](https://github.com/kaitranntt/ccs/commit/fa31bea6722afa35e0fcce3f20522c0586b6313e)), closes [#1298](https://github.com/kaitranntt/ccs/issues/1298)
+* **proxy:** scope insecure TLS to routed profile ([2447813](https://github.com/kaitranntt/ccs/commit/24478135dc255f49ab10a89c00bbb5f6830dcfb2)), closes [#1299](https://github.com/kaitranntt/ccs/issues/1299)
+* redact Codex diagnostics metadata ([e2f2c7d](https://github.com/kaitranntt/ccs/commit/e2f2c7dc2e743a758ec04faacaf242a15612a25f))
+* **release:** decouple npm [@latest](https://github.com/latest) from Docker rc.1 soak (REV11) ([#1277](https://github.com/kaitranntt/ccs/issues/1277)) ([4e9c14b](https://github.com/kaitranntt/ccs/commit/4e9c14b64ab8218a411f868272900b1ee8d4b80c))
+* repair ccsx codex profile resources ([37a1452](https://github.com/kaitranntt/ccs/commit/37a14525cc24b8709261eca0bdcf81a1e289be45))
+* resolve ccsx auth profiles before CCS profiles ([f667628](https://github.com/kaitranntt/ccs/commit/f667628411cc38ad3938d262907a0805e6ae6a37))
+* **security:** reject 127-prefixed websocket origins ([#1263](https://github.com/kaitranntt/ccs/issues/1263)) ([14cbe8f](https://github.com/kaitranntt/ccs/commit/14cbe8fb671c8247adeeeedeba02044e85c2865a))
+* **security:** require localhost for Claude extension `/setup` when dashboard auth is disabled ([#1270](https://github.com/kaitranntt/ccs/issues/1270)) ([db175b6](https://github.com/kaitranntt/ccs/commit/db175b6807c72f902b358591e609a53764424d5d))
+* tighten parity check + catch service-key rename ([#1261](https://github.com/kaitranntt/ccs/issues/1261) loop 3) ([#1274](https://github.com/kaitranntt/ccs/issues/1274)) ([a4e16e0](https://github.com/kaitranntt/ccs/commit/a4e16e0b09647392434e98837b8866b1f27eaaaf))
+* treat remote-control as a Claude subcommand ([db4b938](https://github.com/kaitranntt/ccs/commit/db4b938c0ee4bcb9cdf1d68be61036409eebb33b))
+* **ui:** handle TOML triple-quotes in arrays and AST-aware JSON keys ([15a1faf](https://github.com/kaitranntt/ccs/commit/15a1faf3abbb4980f43dfd54ce46fe9afbc93faf)), closes [#1248](https://github.com/kaitranntt/ccs/issues/1248)
+* **ui:** honor TOML quoted keys and escaped quotes in sensitive masking ([bac51ce](https://github.com/kaitranntt/ccs/commit/bac51ce1ff36ba8ae6037e9cb50c781bc483f87d))
+* **ui:** make codex config.toml viewer selectable ([420494e](https://github.com/kaitranntt/ccs/commit/420494e0e01f7f0c02266e5ed20c3abd84db29fe)), closes [#1247](https://github.com/kaitranntt/ccs/issues/1247)
+* **ui:** mask multi-line sensitive values in CodeEditor ([eefb762](https://github.com/kaitranntt/ccs/commit/eefb76214e17cefa5377cd9fe58554f167e730a6))
+* **ui:** skip TOML comments when scanning sensitive array values ([a633ee0](https://github.com/kaitranntt/ccs/commit/a633ee0af45804f888beb2f33cc00d74ffbb4ef7)), closes [#1248](https://github.com/kaitranntt/ccs/issues/1248)
+* **websearch:** avoid shell for legacy CLI fallbacks ([#1267](https://github.com/kaitranntt/ccs/issues/1267)) ([2115742](https://github.com/kaitranntt/ccs/commit/2115742cafa9497e5a2eaa1564b5b3d0dad7a3ae))
+
+### Documentation
+
+* **ci:** clarify rc.1 soak and :full removal as intentional design ([#1261](https://github.com/kaitranntt/ccs/issues/1261)) ([#1279](https://github.com/kaitranntt/ccs/issues/1279)) ([d2f7d3f](https://github.com/kaitranntt/ccs/commit/d2f7d3f407b2b3d5944e7ceea90a75c6f87cf93d))
+* **docker:** document ccs-net contract for sibling containers ([#1259](https://github.com/kaitranntt/ccs/issues/1259)) ([28f08cb](https://github.com/kaitranntt/ccs/commit/28f08cbb50c70fab5cf8740294ed39a85042f236))
+* **docker:** P3 — hoist two-command quickstart, restructure docker/README, add parity CI ([#1260](https://github.com/kaitranntt/ccs/issues/1260)) ([b50c2db](https://github.com/kaitranntt/ccs/commit/b50c2db3ce567885765918fe9344820f5dfbea5a))
+* sync agent guide with AGENTS ([b123d41](https://github.com/kaitranntt/ccs/commit/b123d415906d0d37013df497596defefa8715902))
+
+### Code Refactoring
+
+* **docker:** drop Bun from runtime stage; generate npm lockfile in build stage ([#1256](https://github.com/kaitranntt/ccs/issues/1256)) ([775f438](https://github.com/kaitranntt/ccs/commit/775f438d78bd45358a38f5b8d2bfca86e005e2e4))
+
+### Performance Improvements
+
+* **ui:** tighten sensitive-mask decoration scope and reveal selector ([f404e52](https://github.com/kaitranntt/ccs/commit/f404e524392d333f0cba82c4c8c717cd68f2323e)), closes [#1248](https://github.com/kaitranntt/ccs/issues/1248)
+
+### Tests
+
+* avoid fixed image analyzer e2e port ([c81ea20](https://github.com/kaitranntt/ccs/commit/c81ea20e446d641568820d2e878642005832915b))
+* cover agents permission-mode passthrough ([e0f43b8](https://github.com/kaitranntt/ccs/commit/e0f43b88c219ba2d08fae8470b69a272012320c5))
+
 ## [Unreleased]
 
 ### Added
