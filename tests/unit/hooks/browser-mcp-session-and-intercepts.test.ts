@@ -433,6 +433,45 @@ describe('ccs-browser MCP server - session and interception', () => {
     expect(listText).not.toContain('Docs');
   });
 
+  it('closes a page when Chrome DevTools requires PUT and returns text', async () => {
+    const responses = await runMcpRequests(
+      [
+        { id: 'page-1', title: 'Home', currentUrl: 'https://example.com/' },
+        { id: 'page-2', title: 'Docs', currentUrl: 'https://example.com/docs' },
+      ],
+      [
+        {
+          jsonrpc: '2.0',
+          id: 8331,
+          method: 'tools/call',
+          params: { name: 'browser_select_page', arguments: { pageIndex: 1 } },
+        },
+        {
+          jsonrpc: '2.0',
+          id: 8332,
+          method: 'tools/call',
+          params: { name: 'browser_close_page', arguments: {} },
+        },
+        {
+          jsonrpc: '2.0',
+          id: 8333,
+          method: 'tools/call',
+          params: { name: 'browser_get_session_info', arguments: {} },
+        },
+      ],
+      { requirePutForClosePage: true, closePageRespondsWithText: true }
+    );
+
+    const closeText = getResponseText(responses.find((message) => message.id === 8332));
+    expect(closeText).toContain('status: closed');
+    expect(closeText).toContain('selectedPageId: page-1');
+
+    const listText = getResponseText(responses.find((message) => message.id === 8333));
+    expect(listText).toContain('0. Home');
+    expect(listText).toContain('selected: true');
+    expect(listText).not.toContain('Docs');
+  });
+
   it('keeps the selected page when closing a different page', async () => {
     const responses = await runMcpRequests(
       [
