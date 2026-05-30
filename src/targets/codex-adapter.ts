@@ -143,6 +143,10 @@ function normalizeCcsxpCodexModelFlagAliases(args: string[]): {
 
   for (let index = 0; index < normalizedArgs.length; index += 1) {
     const arg = normalizedArgs[index];
+    if (arg === '--') {
+      break;
+    }
+
     if (arg === '-m' || arg === '--model') {
       const nextValue = normalizedArgs[index + 1];
       if (typeof nextValue === 'string') {
