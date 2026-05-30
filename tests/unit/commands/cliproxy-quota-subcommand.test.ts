@@ -84,3 +84,35 @@ describe('cliproxy quota subcommand failure formatting', () => {
     expect(resolveDisplayedTier('pro', 'unknown')).toBe('pro');
   });
 });
+
+describe('cliproxy quota subcommand Codex label formatting', () => {
+  it('falls back for non-string cached Codex feature labels', async () => {
+    const { getCodexWindowDisplayLabel } = await loadQuotaCommandTestExports();
+
+    const label = getCodexWindowDisplayLabel({
+      label: 'ignored',
+      resetAfterSeconds: 3600,
+      category: 'additional',
+      cadence: '5h',
+      featureLabel: { unexpected: true },
+    } as never);
+
+    expect(label).toBe('Additional (5h)');
+  });
+
+  it('removes terminal control characters from cached Codex feature labels', async () => {
+    const { getCodexWindowDisplayLabel } = await loadQuotaCommandTestExports();
+
+    const label = getCodexWindowDisplayLabel({
+      label: 'ignored',
+      resetAfterSeconds: 3600,
+      category: 'additional',
+      cadence: 'weekly',
+      featureLabel: '\u001b[2JGPT-5.3-Codex-Spark\u001b]52;c;payload\u0007',
+    });
+
+    expect(label).toBe('Codex Spark (weekly)');
+    expect(label).not.toContain('\u001b');
+    expect(label).not.toContain('\u0007');
+  });
+});
