@@ -62,6 +62,15 @@ describe('execClaudeWithCLIProxy browser flag validation', () => {
     process.env.CCS_HOME = tmpHome;
   });
 
+  async function waitForFile(filePath: string): Promise<boolean> {
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      if (fs.existsSync(filePath)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return fs.existsSync(filePath);
+  }
+
   afterEach(() => {
     if (originalCcsHome !== undefined) {
       process.env.CCS_HOME = originalCcsHome;
@@ -143,6 +152,71 @@ describe('execClaudeWithCLIProxy browser flag validation', () => {
     } finally {
       exitSpy.mockRestore();
       errorSpy.mockRestore();
+    }
+  });
+
+  it('does not treat a stale global exitCode as a current parse failure', async () => {
+    const markerPath = path.join(tmpHome, 'fake-claude-launched');
+    fs.writeFileSync(
+      fakeClaudePath,
+      `#!/bin/sh\nprintf launched > ${JSON.stringify(markerPath)}\nexit 0\n`,
+      { mode: 0o755 }
+    );
+    fs.chmodSync(fakeClaudePath, 0o755);
+
+    let requestCount = 0;
+    const server = http.createServer((_req, res) => {
+      requestCount += 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      server.close();
+      throw new Error('Test server did not bind to a TCP port');
+    }
+
+    const exitSpy = jest
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined as never) as typeof process.exit);
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      process.exitCode = 1;
+
+      await execClaudeWithCLIProxy(
+        fakeClaudePath,
+        'gemini',
+        [
+          '--proxy-host',
+          '127.0.0.1',
+          '--proxy-port',
+          String(address.port),
+          '--proxy-auth-token',
+          'SECRET_TOKEN_FOR_VALIDATION',
+          '--remote-only',
+          '--print',
+          'hello',
+        ],
+        {}
+      );
+
+      expect(await waitForFile(markerPath)).toBe(true);
+      expect(requestCount).toBeGreaterThan(0);
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    } finally {
+      exitSpy.mockRestore();
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
     }
   });
 });

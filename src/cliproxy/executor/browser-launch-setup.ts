@@ -41,6 +41,7 @@ export interface BrowserLaunchSetupResult {
 export function resolveBrowserLaunchFlags(argsWithoutProxy: string[]): {
   browserLaunchOverride: BrowserLaunchOverride | undefined;
   argsWithoutBrowserFlags: string[];
+  parseFailed: boolean;
 } {
   let browserLaunchOverride: BrowserLaunchOverride | undefined;
   let argsWithoutBrowserFlags = argsWithoutProxy;
@@ -52,7 +53,7 @@ export function resolveBrowserLaunchFlags(argsWithoutProxy: string[]): {
     console.error(fail((error as Error).message));
     process.exitCode = 1;
     process.exit(1);
-    return { browserLaunchOverride: undefined, argsWithoutBrowserFlags };
+    return { browserLaunchOverride: undefined, argsWithoutBrowserFlags, parseFailed: true };
   }
 
   const browserConfig = getBrowserConfig();
@@ -72,7 +73,7 @@ export function resolveBrowserLaunchFlags(argsWithoutProxy: string[]): {
     console.error(warn(blockedBrowserOverrideWarning));
   }
 
-  return { browserLaunchOverride, argsWithoutBrowserFlags };
+  return { browserLaunchOverride, argsWithoutBrowserFlags, parseFailed: false };
 }
 
 /**
