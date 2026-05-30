@@ -848,6 +848,32 @@ process.exit(0);
     ]);
   });
 
+  it('preserves ccsxp positional model-like arguments after the option terminator', () => {
+    if (process.platform === 'win32') return;
+
+    const result = runCcsxpAlias(['--', '--', '-m', 'gpt-5.5-high-fast', 'prompt text'], {
+      ...process.env,
+      CI: '1',
+      NO_COLOR: '1',
+      HOME: tmpHome,
+      CCS_HOME: tmpHome,
+      CCS_CODEX_PATH: fakeCodexPath,
+      CCS_TEST_CODEX_ARGS_OUT: codexArgsLogPath,
+      CCS_TEST_CODEX_ENV_OUT: codexEnvLogPath,
+    });
+
+    expect(result.status).toBe(0);
+    const codexCalls = readLoggedCodexCalls(codexArgsLogPath);
+    expect(codexCalls.at(-1)).toEqual([
+      '--config',
+      'model_provider="cliproxy"',
+      '--',
+      '-m',
+      'gpt-5.5-high-fast',
+      'prompt text',
+    ]);
+  });
+
   it('normalizes ccsxp native low Codex tuning aliases in config.toml', () => {
     if (process.platform === 'win32') return;
 
@@ -1137,7 +1163,9 @@ supports_websockets = false
     });
 
     expect(result.status).toBe(0);
-    expect(result.stderr).not.toContain('Codex CLI does not support Claude account-based profiles.');
+    expect(result.stderr).not.toContain(
+      'Codex CLI does not support Claude account-based profiles.'
+    );
     expect(readLoggedCodexCalls(codexArgsLogPath)).toEqual([['fix failing tests']]);
     expect(readLoggedCodexEnv(codexEnvLogPath)).toEqual([
       {
