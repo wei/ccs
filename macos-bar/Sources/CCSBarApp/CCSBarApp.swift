@@ -11,6 +11,9 @@ struct CCSBarApp: App {
     MenuBarExtra {
       BarMenuView(viewModel: viewModel)
     } label: {
+      // The CCS mark + compact glance. The image re-renders when the style
+      // preference changes because `iconStyle` is observed.
+      Image(nsImage: MenuBarIcon.statusImage(viewModel.iconStyle))
       Text(viewModel.statusTitle)
     }
     .menuBarExtraStyle(.window)

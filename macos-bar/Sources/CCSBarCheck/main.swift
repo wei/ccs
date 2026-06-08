@@ -199,6 +199,27 @@ do {
 }
 recorder.status = 200
 
+// Analytics formatting + decode.
+check(BarFormatting.money(0) == "$0.00", "money shows zero")
+check(BarFormatting.money(2609.1) == "$2.6k", "money compacts thousands")
+check(BarFormatting.count(5314) == "5.3k", "count compacts thousands")
+
+let analyticsJSON = """
+{"today":{"cost":0,"requests":0},"last7d":{"cost":0,"requests":0},
+"last30d":{"cost":0,"requests":0},"allTime":{"cost":2609.1,"requests":5314},
+"byDay":[{"date":"2026-06-08","cost":0,"requests":0}],
+"topModels":[{"model":"gpt-5.4","cost":1253.65,"requests":1306}],
+"topModelsWindow":"all","generatedAt":"2026-06-08T13:00:00.000Z"}
+""".data(using: .utf8)!
+do {
+  let a = try JSONDecoder().decode(BarAnalytics.self, from: analyticsJSON)
+  check(a.allTime.requests == 5314, "analytics decodes all-time requests")
+  check(a.topModels.first?.model == "gpt-5.4", "analytics decodes top model")
+  check(a.topModelsWindow == "all", "analytics decodes window")
+} catch {
+  check(false, "analytics decode threw: \(error)")
+}
+
 // cleanup
 try? FileManager.default.removeItem(atPath: tmp)
 

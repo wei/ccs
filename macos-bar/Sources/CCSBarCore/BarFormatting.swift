@@ -15,6 +15,22 @@ public enum BarFormatting {
     return String(format: "$%.2f", cost)
   }
 
+  /// Always-visible compact currency, e.g. "$0.00", "$12.34", "$2.6k", "$1.3M".
+  /// Used for the analytics rollups where zero is meaningful (no spend yet).
+  public static func money(_ v: Double) -> String {
+    let n = max(0, v)
+    if n >= 1_000_000 { return String(format: "$%.1fM", n / 1_000_000) }
+    if n >= 1_000 { return String(format: "$%.1fk", n / 1_000) }
+    return String(format: "$%.2f", n)
+  }
+
+  /// Compact integer count, e.g. "5", "1.2k", "3.4M".
+  public static func count(_ n: Int) -> String {
+    if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+    if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+    return "\(n)"
+  }
+
   /// Compact status-bar title. Shows the most-used (lowest remaining quota)
   /// active account, plus today's total cost when available.
   /// Example: "agy 82% · $3.20". Falls back to "CCS" when there are no rows.

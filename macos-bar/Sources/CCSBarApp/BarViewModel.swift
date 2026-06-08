@@ -8,9 +8,13 @@ import CCSBarCore
 @MainActor
 final class BarViewModel: ObservableObject {
   @Published var rows: [BarSummaryRow] = []
+  @Published var analytics: BarAnalytics?
   @Published var offline = false
   @Published var lastError: String?
   @Published var isRefreshing = false
+  @Published var iconStyle: BarIconStyle {
+    didSet { MenuBarIcon.saveStyle(iconStyle) }
+  }
 
   private let home: String
   private var client: CCSBarClient?
@@ -18,7 +22,13 @@ final class BarViewModel: ObservableObject {
 
   init(home: String = NSHomeDirectory()) {
     self.home = home
+    self.iconStyle = MenuBarIcon.loadStyle()
     reconnect()
+  }
+
+  /// Toggle the menu-bar icon between the color mark and the mono template.
+  func toggleIconStyle() {
+    iconStyle = (iconStyle == .color) ? .mono : .color
   }
 
   /// Compact status-bar title.
@@ -68,6 +78,12 @@ final class BarViewModel: ObservableObject {
       // Keep the last rows visible (instant cached paint); only flip to the
       // offline state when there is nothing to show.
       if rows.isEmpty { offline = true }
+    }
+
+    // Analytics is a best-effort side-load: a failure here must never blank the
+    // glance or flip us offline. Keep the last-known analytics on error.
+    if let fresh = try? await client.analytics() {
+      analytics = fresh
     }
   }
 

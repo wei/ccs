@@ -58,6 +58,19 @@ public struct CCSBarClient {
     }
   }
 
+  /// GET /api/bar/analytics. Server-side rollup of the usage snapshot
+  /// (today / 7d / 30d / all-time spend, sparkline, top models).
+  public func analytics() async throws -> BarAnalytics {
+    let url = baseURL.appendingPathComponent("api/bar/analytics")
+    let (data, http) = try await transport.send(URLRequest(url: url))
+    guard http.statusCode == 200 else { throw CCSBarClientError.httpStatus(http.statusCode) }
+    do {
+      return try JSONDecoder().decode(BarAnalytics.self, from: data)
+    } catch {
+      throw CCSBarClientError.decoding
+    }
+  }
+
   // MARK: Account control (reuses existing CCS endpoints)
 
   public func pause(provider: String, accountId: String) async throws {

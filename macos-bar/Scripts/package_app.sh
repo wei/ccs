@@ -36,6 +36,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXEC_NAME"
 sed "s/__VERSION__/$VERSION/g" "$ROOT/Resources/Info.plist" > "$APP/Contents/Info.plist"
 
+# Bundle the CCS icon assets (menu-bar color/template + header logo) so
+# Bundle.main can resolve them at runtime.
+if [[ -d "$ROOT/Resources/Assets" ]]; then
+  cp "$ROOT/Resources/Assets/"*.png "$APP/Contents/Resources/" 2>/dev/null || true
+fi
+
 echo "[i] Signing ($SIGNING)..."
 case "$SIGNING" in
   adhoc)
