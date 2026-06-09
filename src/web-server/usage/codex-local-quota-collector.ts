@@ -2,18 +2,40 @@
  * Codex local quota collector (zero network).
  *
  * Codex writes a `rate_limits` object into its rollout session logs
- * (~/.codex/sessions/<y>/<m>/<d>/rollout-*.jsonl). We read the most recent
- * session's last non-null rate_limits to surface the user's Codex subscription
- * quota WITHOUT any network call — pure local file read.
+ * (~/.codex/sessions/<y>/<m>/<d>/rollout-*.jsonl). We surface the user's Codex
+ * subscription quota WITHOUT any network call — pure local file read.
  *
- * Exec-mode sessions often never emit rate_limits (the field stays null); in
- * that case we return null so the bar simply omits the Codex row rather than
- * inventing a fake one.
+ * Exec-mode sessions often never emit rate_limits (the field stays null). The
+ * NEWEST session is frequently exec-mode, so reading only it would emit no row
+ * even though an older interactive session still carries real quota. We instead
+ * scan recent sessions newest-first and use the first one that yields a usable
+ * rate_limits, marking the result stale when that source file is old. We only
+ * return null when no scanned session has any rate_limits — then the bar omits
+ * the row rather than inventing a fake one.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveCodexConfigPaths } from '../services/codex-dashboard-service';
+
+/**
+ * One Codex quota window normalized for the bar's per-window detail.
+ * `key`/`label` map primary->five_hour/"5h", secondary->seven_day/"week".
+ */
+export interface CodexLocalQuotaWindow {
+  /** Stable window key: "five_hour" | "seven_day". */
+  key: string;
+  /** Short display label: "5h" | "week". */
+  label: string;
+  /** Used percentage (0-100). */
+  usedPercent: number;
+  /** Remaining percentage (0-100) = 100 - usedPercent. */
+  remainingPercent: number;
+  /** ISO timestamp when this window resets, null if unknown. */
+  resetAt: string | null;
+  /** Window length in minutes (300 / 10080), null if absent in the raw log. */
+  windowMinutes: number | null;
+}
 
 /** Normalized Codex quota snapshot from a local session log. */
 export interface CodexLocalQuota {
@@ -25,6 +47,13 @@ export interface CodexLocalQuota {
   tier: string | null;
   /** True when the source file is older than the freshness window. */
   stale: boolean;
+  /**
+   * ISO mtime of the session file that SUPPLIED this data, present only when
+   * stale. Lets the bar render an "as of HH:mm (older session)" footnote.
+   */
+  staleAsOf: string | null;
+  /** Per-window detail (primary -> five_hour, secondary -> seven_day). */
+  windows: CodexLocalQuotaWindow[];
 }
 
 /** Injectable seams for deterministic tests (no real fs / no tail subprocess). */
@@ -45,9 +74,17 @@ const TAIL_LINES = 200;
 /** A source older than this is reported stale (but still emitted). */
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
+/**
+ * Cap on how many recent session files we scan newest-first before giving up.
+ * Bounds the walk when Codex genuinely never reported (avoids touching the whole
+ * history) while still reaching past several exec-mode sessions to a real one.
+ */
+const MAX_SESSIONS_SCANNED = 20;
+
 interface CodexRateWindow {
   usedPercent: number;
   resetsAtSeconds: number | null;
+  windowMinutes: number | null;
 }
 
 interface CodexRateLimits {
@@ -73,6 +110,7 @@ function parseWindow(value: unknown): CodexRateWindow | null {
   return {
     usedPercent,
     resetsAtSeconds: asFiniteNumber(obj['resets_at']),
+    windowMinutes: asFiniteNumber(obj['window_minutes']),
   };
 }
 
@@ -162,9 +200,52 @@ function computeNextReset(rate: CodexRateLimits): string | null {
   return new Date(Math.min(...resets) * 1000).toISOString();
 }
 
+function windowDetail(window: CodexRateWindow, key: string, label: string): CodexLocalQuotaWindow {
+  const usedPercent = Math.max(0, Math.min(100, window.usedPercent));
+  return {
+    key,
+    label,
+    usedPercent,
+    remainingPercent: 100 - usedPercent,
+    resetAt:
+      window.resetsAtSeconds !== null
+        ? new Date(window.resetsAtSeconds * 1000).toISOString()
+        : null,
+    windowMinutes: window.windowMinutes,
+  };
+}
+
+/** Build per-window detail (primary -> 5h, secondary -> week), omitting absent. */
+function buildWindows(rate: CodexRateLimits): CodexLocalQuotaWindow[] {
+  const windows: CodexLocalQuotaWindow[] = [];
+  if (rate.primary) windows.push(windowDetail(rate.primary, 'five_hour', '5h'));
+  if (rate.secondary) windows.push(windowDetail(rate.secondary, 'seven_day', 'week'));
+  return windows;
+}
+
+/** Scan one session file's tail backward for the latest non-null rate_limits. */
+async function readRateLimitsFromFile(
+  file: string,
+  tailLinesImpl: (file: string, lines: number) => Promise<string[]>
+): Promise<CodexRateLimits | null> {
+  let lines: string[];
+  try {
+    lines = await tailLinesImpl(file, TAIL_LINES);
+  } catch {
+    return null;
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const found = extractRateLimits(lines[i]);
+    if (found) return found;
+  }
+  return null;
+}
+
 /**
- * Read the latest Codex session's most recent rate_limits and normalize it.
- * Returns null when no session carries a usable rate_limits object.
+ * Scan recent Codex sessions newest-first and normalize the first usable
+ * rate_limits. Staleness is computed from the mtime of the file that SUPPLIED
+ * the data (not the newest file), so a real-but-old session reads correctly as
+ * stale. Returns null only when none of the scanned sessions carries quota.
  */
 export async function getCodexLocalQuota(
   deps: CodexLocalQuotaDeps = {}
@@ -182,31 +263,28 @@ export async function getCodexLocalQuota(
   const rolloutFiles = collectRolloutFiles(sessionsDir, existsImpl, readdirImpl);
   if (rolloutFiles.length === 0) return null;
 
-  // Filename carries an ISO timestamp, so the lexicographically-last file is
-  // the most recent session.
-  const latest = rolloutFiles[rolloutFiles.length - 1];
+  // Filenames carry an ISO timestamp, so the lexicographic order is chronological.
+  // Walk newest-first, bounded, until a session yields a usable rate_limits.
+  const newestFirst = rolloutFiles.slice().reverse().slice(0, MAX_SESSIONS_SCANNED);
 
-  let lines: string[];
-  try {
-    lines = await tailLinesImpl(latest, TAIL_LINES);
-  } catch {
-    return null;
-  }
-
-  // Iterate backwards for the most recent non-null rate_limits.
   let rate: CodexRateLimits | null = null;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const found = extractRateLimits(lines[i]);
+  let sourceFile: string | null = null;
+  for (const file of newestFirst) {
+    const found = await readRateLimitsFromFile(file, tailLinesImpl);
     if (found) {
       rate = found;
+      sourceFile = file;
       break;
     }
   }
-  if (!rate) return null;
+  if (!rate || !sourceFile) return null;
 
   let stale = false;
+  let staleAsOf: string | null = null;
   try {
-    stale = now - statMtimeMsImpl(latest) > STALE_AFTER_MS;
+    const mtimeMs = statMtimeMsImpl(sourceFile);
+    stale = now - mtimeMs > STALE_AFTER_MS;
+    if (stale) staleAsOf = new Date(mtimeMs).toISOString();
   } catch {
     // Unknown mtime -> treat as fresh; the data itself is still valid.
     stale = false;
@@ -217,5 +295,7 @@ export async function getCodexLocalQuota(
     nextReset: computeNextReset(rate),
     tier: rate.planType,
     stale,
+    staleAsOf,
+    windows: buildWindows(rate),
   };
 }

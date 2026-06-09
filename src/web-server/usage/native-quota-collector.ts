@@ -27,7 +27,7 @@ import {
 import { fetchClaudeQuotaWithToken } from '../../cliproxy/quota/quota-fetcher-claude';
 import { getCodexLocalQuota, type CodexLocalQuota } from './codex-local-quota-collector';
 import type { ClaudeQuotaResult } from '../../cliproxy/quota/quota-types';
-import type { BarSummaryRow } from '../routes/bar-routes';
+import type { BarSummaryRow, QuotaWindowDetail } from '../routes/bar-routes';
 
 // ============================================================================
 // Safety constants (concrete, named, module-level)
@@ -174,7 +174,69 @@ function deriveClaudeNextReset(quota: ClaudeQuotaResult): string | null {
   return resets.length > 0 ? resets[0].iso : null;
 }
 
+/** Window length in minutes by Claude rate-limit family. */
+const FIVE_HOUR_MINUTES = 300;
+const SEVEN_DAY_MINUTES = 10080;
+
+/**
+ * Build the per-window detail for a Claude subscription row.
+ *
+ * 5h + weekly come from coreUsage (the canonical core summary). Opus/Sonnet
+ * weekly splits come from quota.windows[] and only exist on Max plans, so they
+ * are omitted entirely when absent. Each window carries BOTH used and remaining
+ * percent so the bar never re-derives them.
+ */
+function buildClaudeQuotaWindows(quota: ClaudeQuotaResult): QuotaWindowDetail[] {
+  const windows: QuotaWindowDetail[] = [];
+
+  const fiveHour = quota.coreUsage?.fiveHour;
+  if (fiveHour) {
+    windows.push({
+      key: 'five_hour',
+      label: '5h',
+      usedPercent: 100 - fiveHour.remainingPercent,
+      remainingPercent: fiveHour.remainingPercent,
+      resetAt: fiveHour.resetAt,
+      windowMinutes: FIVE_HOUR_MINUTES,
+    });
+  }
+
+  const weekly = quota.coreUsage?.weekly;
+  if (weekly) {
+    windows.push({
+      key: 'seven_day',
+      label: 'week',
+      usedPercent: 100 - weekly.remainingPercent,
+      remainingPercent: weekly.remainingPercent,
+      resetAt: weekly.resetAt,
+      windowMinutes: SEVEN_DAY_MINUTES,
+    });
+  }
+
+  // Opus/Sonnet weekly splits are Max-only; surface them when the API carries
+  // them, otherwise omit so non-Max plans get exactly the two core windows.
+  const splitLabels: Record<string, string> = {
+    seven_day_opus: 'Opus · week',
+    seven_day_sonnet: 'Sonnet · week',
+  };
+  for (const w of quota.windows) {
+    const label = splitLabels[w.rateLimitType];
+    if (!label) continue;
+    windows.push({
+      key: w.rateLimitType,
+      label,
+      usedPercent: w.usedPercent,
+      remainingPercent: w.remainingPercent,
+      resetAt: w.resetAt,
+      windowMinutes: SEVEN_DAY_MINUTES,
+    });
+  }
+
+  return windows;
+}
+
 function buildClaudeRow(quota: ClaudeQuotaResult, tier: string | null, now: number): BarSummaryRow {
+  const quotaWindows = buildClaudeQuotaWindows(quota);
   return {
     account_id: CLAUDE_PROVIDER,
     provider: CLAUDE_PROVIDER,
@@ -191,10 +253,26 @@ function buildClaudeRow(quota: ClaudeQuotaResult, tier: string | null, now: numb
     cached: false,
     fetchedAt: new Date(now).toISOString(),
     needsReauth: false,
+    // Omit the field entirely (rather than an empty array) when no windows
+    // resolved, so the wire shape stays minimal.
+    ...(quotaWindows.length > 0 ? { quotaWindows } : {}),
   };
 }
 
+/** Map the Codex local windows into the row's per-window detail shape. */
+function buildCodexQuotaWindows(quota: CodexLocalQuota): QuotaWindowDetail[] {
+  return quota.windows.map((w) => ({
+    key: w.key,
+    label: w.label,
+    usedPercent: w.usedPercent,
+    remainingPercent: w.remainingPercent,
+    resetAt: w.resetAt,
+    windowMinutes: w.windowMinutes,
+  }));
+}
+
 function buildCodexRow(quota: CodexLocalQuota, now: number): BarSummaryRow {
+  const quotaWindows = buildCodexQuotaWindows(quota);
   return {
     account_id: CODEX_PROVIDER,
     provider: CODEX_PROVIDER,
@@ -213,6 +291,9 @@ function buildCodexRow(quota: CodexLocalQuota, now: number): BarSummaryRow {
     cached: false,
     fetchedAt: new Date(now).toISOString(),
     needsReauth: false,
+    ...(quotaWindows.length > 0 ? { quotaWindows } : {}),
+    // staleAsOf is only present (and serialized) when the source session is old.
+    ...(quota.staleAsOf ? { staleAsOf: quota.staleAsOf } : {}),
   };
 }
 

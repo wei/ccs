@@ -28,6 +28,32 @@ import type { DailyUsage, HourlyUsage } from '../usage/types';
 // Types
 // ============================================================================
 
+/**
+ * Per-window quota detail for native subscription rows (Claude/Codex).
+ *
+ * Carries BOTH used and remaining percent so the macOS bar never re-derives
+ * them. CLIProxy rows omit the parent `quotaWindows` field entirely, keeping
+ * the payload backward compatible.
+ *
+ * JSON shape (decode test pins these exact keys): the inner object keys stay
+ * camelCase (usedPercent/remainingPercent/resetAt/windowMinutes); only the
+ * parent field name serializes to snake_case ("quota_windows").
+ */
+export interface QuotaWindowDetail {
+  /** Stable key: "five_hour" | "seven_day" | "seven_day_opus" | "seven_day_sonnet". */
+  key: string;
+  /** Display label: "5h" | "week" | "Opus · week" | "Sonnet · week". */
+  label: string;
+  /** Used percentage (0-100). */
+  usedPercent: number;
+  /** Remaining percentage (0-100). Carried explicitly, never derived in Swift. */
+  remainingPercent: number;
+  /** ISO timestamp when this window resets, null if unknown. */
+  resetAt: string | null;
+  /** Window length in minutes (300 | 10080), null if unknown. */
+  windowMinutes: number | null;
+}
+
 /** Single account glance row returned by /api/bar/summary */
 export interface BarSummaryRow {
   /** Account identifier (email or custom name) */
@@ -67,6 +93,18 @@ export interface BarSummaryRow {
   fetchedAt: string;
   /** True if account token is expired and needs re-authentication */
   needsReauth: boolean;
+  /**
+   * Native-only per-window quota breakdown (Claude: 5h/week/opus/sonnet,
+   * Codex: 5h/week). CLIProxy rows OMIT this field so existing decode/encode
+   * tests and the Swift legacy path stay unaffected. Serialized as
+   * "quota_windows".
+   */
+  quotaWindows?: QuotaWindowDetail[];
+  /**
+   * Native-only ISO mtime of the source session that supplied a stale Codex
+   * reading. Present only when stale; serialized as "stale_as_of".
+   */
+  staleAsOf?: string | null;
 }
 
 // ============================================================================
@@ -175,6 +213,21 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
       }
     );
   });
+}
+
+/**
+ * Map a row to its wire shape. The native-only additions use snake_case parent
+ * keys ("quota_windows" / "stale_as_of") to match the existing payload's mixed
+ * casing; inner QuotaWindowDetail keys stay camelCase and pass through as-is.
+ * Rows without the native fields serialize byte-identically to before, so
+ * CLIProxy decode/encode tests are unaffected.
+ */
+function serializeBarRow(row: BarSummaryRow): Record<string, unknown> {
+  const { quotaWindows, staleAsOf, ...rest } = row;
+  const wire: Record<string, unknown> = { ...rest };
+  if (quotaWindows !== undefined) wire.quota_windows = quotaWindows;
+  if (staleAsOf !== undefined && staleAsOf !== null) wire.stale_as_of = staleAsOf;
+  return wire;
 }
 
 // ============================================================================
@@ -496,7 +549,7 @@ export function createBarRouter(deps: BarRouterDeps): Router {
       const getNative = deps.getNativeAccountRows ?? (async () => [] as BarSummaryRow[]);
       const nativeRows = (await withTimeout(getNative(), NATIVE_SIDELOAD_TIMEOUT_MS)) ?? [];
 
-      res.json([...rows, ...nativeRows]);
+      res.json([...rows, ...nativeRows].map(serializeBarRow));
     } catch (err) {
       console.error('[bar-routes] /summary error:', (err as Error).message);
       res.status(500).json({ error: 'Internal server error' });

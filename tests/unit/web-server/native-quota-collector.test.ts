@@ -47,6 +47,34 @@ function successQuota(): ClaudeQuotaResult {
   };
 }
 
+/** A Max-plan quota carrying the Opus/Sonnet weekly splits in windows[]. */
+function maxQuotaWithSplits(): ClaudeQuotaResult {
+  const base = successQuota();
+  return {
+    ...base,
+    windows: [
+      {
+        rateLimitType: 'seven_day_opus',
+        label: 'Opus weekly',
+        status: 'allowed',
+        utilization: 0.25,
+        usedPercent: 25,
+        remainingPercent: 75,
+        resetAt: '2026-06-15T00:00:00.000Z',
+      },
+      {
+        rateLimitType: 'seven_day_sonnet',
+        label: 'Sonnet weekly',
+        status: 'allowed',
+        utilization: 0.6,
+        usedPercent: 60,
+        remainingPercent: 40,
+        resetAt: '2026-06-15T00:00:00.000Z',
+      },
+    ],
+  };
+}
+
 function reauthQuota(): ClaudeQuotaResult {
   return {
     success: false,
@@ -113,6 +141,51 @@ describe('Claude native row mapping', () => {
     expect(row?.displayName).toBe('Claude Code');
     expect(row?.account_id).toBe('claude-code');
     expect(row?.needsReauth).toBe(false);
+  });
+
+  it('emits quotaWindows with five_hour + seven_day from coreUsage (no opus/sonnet on non-Max)', async () => {
+    const clock = { now: 1_000_000 };
+    const deps = makeDeps(async () => successQuota(), clock);
+    const rows = await getNativeAccountRows(deps);
+    const row = rows.find((r) => r.provider === 'claude-code');
+
+    expect(row?.quotaWindows).toHaveLength(2);
+    const five = row?.quotaWindows?.find((w) => w.key === 'five_hour');
+    expect(five?.label).toBe('5h');
+    expect(five?.remainingPercent).toBe(42);
+    expect(five?.usedPercent).toBe(58); // 100 - 42
+    expect(five?.windowMinutes).toBe(300);
+    expect(five?.resetAt).toBe('2026-06-09T20:00:00.000Z');
+
+    const week = row?.quotaWindows?.find((w) => w.key === 'seven_day');
+    expect(week?.label).toBe('week');
+    expect(week?.remainingPercent).toBe(70);
+    expect(week?.usedPercent).toBe(30);
+    expect(week?.windowMinutes).toBe(10080);
+
+    // Max-only splits absent here.
+    expect(row?.quotaWindows?.find((w) => w.key === 'seven_day_opus')).toBeUndefined();
+    expect(row?.quotaWindows?.find((w) => w.key === 'seven_day_sonnet')).toBeUndefined();
+  });
+
+  it('adds seven_day_opus + seven_day_sonnet windows when present (Max plan)', async () => {
+    const clock = { now: 1_000_000 };
+    const deps = makeDeps(async () => maxQuotaWithSplits(), clock);
+    const rows = await getNativeAccountRows(deps);
+    const row = rows.find((r) => r.provider === 'claude-code');
+
+    // five_hour, seven_day, seven_day_opus, seven_day_sonnet
+    expect(row?.quotaWindows).toHaveLength(4);
+    const opus = row?.quotaWindows?.find((w) => w.key === 'seven_day_opus');
+    expect(opus?.label).toBe('Opus · week');
+    expect(opus?.usedPercent).toBe(25);
+    expect(opus?.remainingPercent).toBe(75);
+    expect(opus?.windowMinutes).toBe(10080);
+
+    const sonnet = row?.quotaWindows?.find((w) => w.key === 'seven_day_sonnet');
+    expect(sonnet?.label).toBe('Sonnet · week');
+    expect(sonnet?.usedPercent).toBe(60);
+    expect(sonnet?.remainingPercent).toBe(40);
   });
 
   it('emits a reauth error row on 401/needsReauth', async () => {
@@ -288,6 +361,25 @@ describe('Codex path', () => {
         nextReset: '2026-06-09T19:00:00.000Z',
         tier: 'pro',
         stale: false,
+        staleAsOf: null,
+        windows: [
+          {
+            key: 'five_hour',
+            label: '5h',
+            usedPercent: 19,
+            remainingPercent: 81,
+            resetAt: '2026-06-09T19:00:00.000Z',
+            windowMinutes: 300,
+          },
+          {
+            key: 'seven_day',
+            label: 'week',
+            usedPercent: 48,
+            remainingPercent: 52,
+            resetAt: '2026-06-14T00:00:00.000Z',
+            windowMinutes: 10080,
+          },
+        ],
       }),
       now: () => clock.now,
     };
@@ -297,6 +389,9 @@ describe('Codex path', () => {
     expect(row?.quota_percentage).toBe(52);
     expect(row?.tier).toBe('pro');
     expect(row?.health).toBe('ok');
+    expect(row?.quotaWindows).toHaveLength(2);
+    expect(row?.quotaWindows?.[0].windowMinutes).toBe(300);
+    expect(row?.staleAsOf).toBeUndefined();
   });
 
   it('flags health warning when the Codex source is stale', async () => {
@@ -308,11 +403,16 @@ describe('Codex path', () => {
         nextReset: null,
         tier: null,
         stale: true,
+        staleAsOf: '2026-06-09T13:30:00.000Z',
+        windows: [],
       }),
       now: () => clock.now,
     };
     const rows = await getNativeAccountRows(deps);
-    expect(rows.find((r) => r.provider === 'codex')?.health).toBe('warning');
+    const row = rows.find((r) => r.provider === 'codex');
+    expect(row?.health).toBe('warning');
+    // staleAsOf flows through so the bar can render the freshness footnote.
+    expect(row?.staleAsOf).toBe('2026-06-09T13:30:00.000Z');
   });
 
   it('omits the codex row when there is no rate_limits (exec-mode)', async () => {
