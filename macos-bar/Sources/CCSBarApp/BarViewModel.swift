@@ -37,6 +37,12 @@ final class BarViewModel: ObservableObject {
   private let home: String
   private var client: CCSBarClient?
   private var debouncer = RefreshDebouncer(interval: 15)
+  /// Periodic background refresh so the glance self-heals from a transient
+  /// server gap (e.g. a momentary backend restart that dropped the native rows)
+  /// without the user having to reopen the menu. Cheap + safe: it reads the
+  /// local server's caches and never hammers providers (native quota is
+  /// TTL-gated server-side).
+  private var pollTask: Task<Void, Never>?
   private let prefs: BarPreferences
   private let notifier: NotificationDelivering
 
@@ -58,6 +64,23 @@ final class BarViewModel: ObservableObject {
     self.glanceMode = prefs.load().glanceMode
     self.spendChartStyle = SpendChartStyleStore.load()
     reconnect()
+    startBackgroundPolling()
+  }
+
+  /// Periodically re-poll for the app's lifetime so a transient empty/missing-row
+  /// state recovers on its own within one interval — each tick reconnects if the
+  /// client/discovery was lost, then loads (non-force, so it respects the
+  /// server-side caches). This is what prevents the menu from getting stuck after
+  /// the server momentarily restarts.
+  private func startBackgroundPolling() {
+    pollTask?.cancel()
+    pollTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(60))
+        guard let self else { return }
+        await self.load(force: false)
+      }
+    }
   }
 
   /// Re-read prefs after the preferences sheet writes through, so the next poll
