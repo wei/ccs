@@ -50,12 +50,17 @@ struct BarMenuView: View {
             accountsSection
 
             // (3) SPEND — demoted to a thin informational strip below the cockpit.
-            // spendChartStyle is threaded from the viewModel so a live change in
-            // Settings immediately updates the chart without a refresh.
+            // spendChartStyle is threaded from the viewModel and toggled inline
+            // from the Spend header, so a change updates the chart immediately.
             if let analytics = viewModel.analytics {
               Divider()
-              BarAnalyticsView(analytics: analytics, section: .spend,
-                               spendChartStyle: viewModel.spendChartStyle)
+              BarAnalyticsView(
+                analytics: analytics, section: .spend,
+                spendChartStyle: viewModel.spendChartStyle,
+                onToggleSpendStyle: {
+                  viewModel.spendChartStyle =
+                    viewModel.spendChartStyle == .bars ? .line : .bars
+                })
             }
 
             // (4) POOL ACCOUNTS — compact generic rows, subordinate.

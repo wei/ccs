@@ -22,6 +22,10 @@ struct BarAnalyticsView: View {
   /// Controls whether the spend sparkline renders as bars or a line graph.
   /// Passed in by BarMenuView so it reflects the user's persisted choice live.
   var spendChartStyle: SpendChartStyle = .bars
+  /// Inline flip for the spend chart style, surfaced as a small toggle in the
+  /// Spend header (using the otherwise-blank space) so the user switches
+  /// bars/line in place rather than digging into Settings. nil for `.breakdown`.
+  var onToggleSpendStyle: (() -> Void)? = nil
 
   private var lastActive: String? {
     BarFormatting.lastActiveLabel(
@@ -71,7 +75,23 @@ struct BarAnalyticsView: View {
   /// line, and a thin inline 30-day sparkline when there is real spend.
   private var spendStrip: some View {
     VStack(alignment: .leading, spacing: 5) {
-      SectionLabel("Spend")
+      HStack(spacing: 6) {
+        SectionLabel("Spend")
+        Spacer()
+        // Inline bars/line toggle in the header's blank space — no Settings trip.
+        if let toggle = onToggleSpendStyle, analytics.hasRecentData, !sparklineIsEmpty {
+          Button(action: toggle) {
+            Image(
+              systemName: spendChartStyle == .bars
+                ? "chart.line.uptrend.xyaxis" : "chart.bar.fill"
+            )
+            .font(.system(size: 10))
+          }
+          .buttonStyle(.borderless)
+          .foregroundStyle(.tertiary)
+          .help("Spend graph: switch to \(spendChartStyle == .bars ? "line" : "bars")")
+        }
+      }
       if analytics.hasRecentData {
         Text(spendCaption)
           .font(.caption2)

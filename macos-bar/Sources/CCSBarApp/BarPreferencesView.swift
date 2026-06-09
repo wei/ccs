@@ -62,13 +62,8 @@ struct BarPreferencesView: View {
         Text("Dark").tag(BarAppearance.dark)
       }
       .pickerStyle(.segmented)
-      // Changing this live-updates the spend chart in the open dropdown because
-      // viewModel.spendChartStyle is @Published and SpendChartStyleStore persists it.
-      Picker("Spend graph", selection: $viewModel.spendChartStyle) {
-        Text("Bars").tag(SpendChartStyle.bars)
-        Text("Line").tag(SpendChartStyle.line)
-      }
-      .pickerStyle(.segmented)
+      // Spend graph bars/line is toggled inline in the dropdown's Spend header,
+      // not here — kept out of Settings so the choice lives where the chart is.
     }
   }
 
