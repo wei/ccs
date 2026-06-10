@@ -28,8 +28,10 @@ import CCSBarCore
 /// Why (3): with "Displays have separate Spaces" on, the menu bar icon appears
 /// on every display but the panel can open on the wrong screen when its initial
 /// frame is computed relative to `NSScreen.main` instead of the clicked screen.
-/// Reading `NSEvent.mouseLocation` at open-time gives the screen of interaction;
-/// if the panel is on a different screen we reposition it to match (#1502).
+/// `NSEvent.mouseLocation` is captured synchronously at click time (before the
+/// async window-materialization hop) to avoid a placement race where a post-click
+/// cursor move would anchor the panel to the wrong display.
+/// If the panel landed on a different screen than the click we reposition it (#1502).
 ///
 /// Modeled on the proven `ScrollerHider` pattern (which already reaches the host
 /// window inside this popover), proving cross-window AppKit access works here.
@@ -38,17 +40,22 @@ struct WindowAppearanceForcer: NSViewRepresentable {
 
   func makeNSView(context: Context) -> NSView {
     let probe = NSView(frame: .zero)
-    // Defer until the view is in the hierarchy; at make-time `view.window` is nil.
-    DispatchQueue.main.async { apply(to: probe, isFirstOpen: true) }
+    // Capture the cursor position synchronously at click time (before any async
+    // dispatch) so the anchoring logic always sees the screen that was clicked,
+    // not wherever the cursor ended up by the time the async block executes.
+    let clickLocation = NSEvent.mouseLocation
+    // Defer window access until the view is in the hierarchy; at make-time
+    // `view.window` is nil.
+    DispatchQueue.main.async { apply(to: probe, clickLocation: clickLocation) }
     return probe
   }
 
   func updateNSView(_ nsView: NSView, context: Context) {
     // Re-apply on every update: the popover's NSWindow can be rebuilt on content
     // changes, and the appearance pick itself changes mid-session. Screen
-    // anchoring is skipped on updates (isFirstOpen: false) to avoid fighting
+    // anchoring is skipped on updates (clickLocation: nil) to avoid fighting
     // SwiftUI's own layout passes once the panel is already shown.
-    DispatchQueue.main.async { apply(to: nsView, isFirstOpen: false) }
+    DispatchQueue.main.async { apply(to: nsView, clickLocation: nil) }
   }
 
   /// Apply all window fixes: appearance, collectionBehavior, and (on first open)
@@ -57,7 +64,10 @@ struct WindowAppearanceForcer: NSViewRepresentable {
   ///   .system -> nil   (follow the OS)
   ///   .light  -> aqua
   ///   .dark   -> darkAqua
-  private func apply(to view: NSView, isFirstOpen: Bool) {
+  ///
+  /// `clickLocation`: the cursor position captured synchronously at click time.
+  /// Non-nil only on the first open; nil on subsequent updates (anchoring skipped).
+  private func apply(to view: NSView, clickLocation: NSPoint?) {
     guard let window = view.window else { return }
 
     // (1) Appearance.
@@ -81,23 +91,25 @@ struct WindowAppearanceForcer: NSViewRepresentable {
     window.collectionBehavior = behavior
 
     // (3) Screen anchoring on first open — fix #1502.
-    // NSEvent.mouseLocation reports the click position in global (screen)
-    // coordinates at the time the panel opens. If the panel landed on a
-    // different screen than the one that was clicked, move it there.
+    // clickLocation is the cursor position captured synchronously at click time
+    // (before the async hop). Passing it here avoids the placement race where
+    // a late-read NSEvent.mouseLocation could reflect a post-click cursor move
+    // and anchor the panel to the wrong display.
     // This is a no-op on a single-display setup or when the panel is already
     // on the correct screen.
-    if isFirstOpen {
-      anchorToClickedScreen(window: window)
+    if let location = clickLocation {
+      anchorToClickedScreen(window: window, clickLocation: location)
     }
   }
 
-  /// Repositions `window` to the screen that contains the current mouse cursor
-  /// if that screen differs from the screen the panel currently occupies.
+  /// Repositions `window` to the screen that contains `clickLocation` (the
+  /// cursor position captured synchronously at click time) if that screen
+  /// differs from the screen the panel currently occupies.
   ///
   /// The y-offset from the top of the screen is preserved so the panel still
   /// appears just below the menu bar on the correct display.
-  private func anchorToClickedScreen(window: NSWindow) {
-    let mouseGlobal = NSEvent.mouseLocation
+  private func anchorToClickedScreen(window: NSWindow, clickLocation: NSPoint) {
+    let mouseGlobal = clickLocation
     let screens = NSScreen.screens
     guard
       let clickedScreen = BarScreenPicker.screen(for: mouseGlobal, in: screens),
