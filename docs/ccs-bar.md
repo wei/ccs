@@ -47,7 +47,7 @@ xattr -dr com.apple.quarantine "$HOME/Applications/CCS Bar.app"
 ccs bar          # alias: ccs bar launch
 ```
 
-This makes sure the web-server is up, writes the discovery file `~/.ccs/bar.json`, and opens the app. The discovery file looks like this:
+This checks whether a CCS web-server is already running (probing port 3000, 3001, 3002, 8000, and 8080, with the port from the previous `bar.json` checked first). If a live server is found it is reused; otherwise a new one is started. Either way the discovery file `~/.ccs/bar.json` is written and the app is opened. The discovery file looks like this:
 
 ```json
 { "baseUrl": "http://127.0.0.1:3000", "port": 3000, "authMode": "loopback" }
@@ -72,7 +72,7 @@ This removes `~/Applications/CCS Bar.app` and the installed version pin. It is a
 ## Troubleshooting
 
 - Install fails with "server predates CCS Bar" or bar API returns 404: the CCS server running does not yet include CCS Bar. Update CCS (`npm i -g ccs@latest` or equivalent), then restart `ccs bar`.
-- Server failed to start: usually a port conflict. Free the port or re-run `ccs bar` to pick a fresh one.
+- Server failed to start: `ccs bar` first checks whether a CCS server is already running on the candidate ports (3000, 3001, 3002, 8000, 8080) and reuses it if found. A true failure here means a non-CCS process is occupying all candidate ports. Free one of those ports and re-run `ccs bar`.
 - App won't open (Gatekeeper): right-click and Open, or clear quarantine with the `xattr` command above.
 - Blank app: the web-server is not running. Re-run `ccs bar` and confirm `~/.ccs/bar.json` exists.
 - Quota not updating: re-open the menu to force a refresh, or confirm the server is still reachable on loopback.
