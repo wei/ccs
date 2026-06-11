@@ -67,6 +67,7 @@ import { resolveExecutorProxy, resolveExecutorProxyConfig } from './proxy-resolv
 import { buildProxyChain } from './proxy-chain-builder';
 import { warnBrokenModels } from './model-warnings';
 import { launchClaude } from './claude-launcher';
+import { maybeWarnClaudeShadow, maybeShowClaudeRoutingNotice } from '../claude-shadow-warning';
 
 /** Local alias so internal call sites need no change */
 const resolveRuntimeQuotaMonitorProviders = _resolveRuntimeQuotaMonitorProviders;
@@ -160,6 +161,11 @@ export async function execClaudeWithCLIProxy(
 
   const providerConfig = getProviderConfig(provider);
   log(`Provider: ${providerConfig.displayName}`);
+
+  // claude built-in: warn once if a user profile is being shadowed
+  if (provider === 'claude') {
+    maybeWarnClaudeShadow();
+  }
 
   // Variables for local proxy mode
   let sessionId: string | undefined;
@@ -278,6 +284,11 @@ export async function execClaudeWithCLIProxy(
 
   // 5. Check for broken models (multi-tier for composite)
   warnBrokenModels({ provider, cfg, compositeProviders, skipLocalAuth });
+
+  // 5a. claude built-in: one-time routing notice (first launch only)
+  if (provider === 'claude') {
+    maybeShowClaudeRoutingNotice();
+  }
 
   // 6. Ensure user settings file exists
   ensureProviderSettingsFile(provider);
