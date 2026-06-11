@@ -568,8 +568,9 @@ export function restoreAutoPausedAccounts(provider: CLIProxyProvider): void {
   saveAutoPaused(data);
 }
 
-// Error patterns that indicate Google has disabled/banned an account
-const BAN_PATTERNS = [
+// Error patterns that indicate a provider has disabled/banned an account.
+// Shared patterns apply to all providers (Google and Anthropic OAuth flows).
+const SHARED_BAN_PATTERNS = [
   'disabled in this account',
   'violation of terms of service',
   'account has been disabled',
@@ -578,12 +579,28 @@ const BAN_PATTERNS = [
   'account has been banned',
 ];
 
+// Anthropic-specific disable patterns.  Only applied when provider === 'claude'
+// to avoid false-positive auto-pause on Google/Codex errors that may reference
+// "policy" in rate-limit or scope messages.
+const ANTHROPIC_BAN_PATTERNS = ['your account has been blocked', 'account is blocked'];
+
 /**
  * Check if an error message indicates an account ban/disable.
+ * Pass the provider so Anthropic-only patterns cannot trip Google providers.
  */
-export function isBanResponse(errorMessage: string): boolean {
+export function isBanResponse(errorMessage: string, provider?: CLIProxyProvider): boolean {
   const lower = errorMessage.toLowerCase();
-  return BAN_PATTERNS.some((pattern) => lower.includes(pattern));
+  if (SHARED_BAN_PATTERNS.some((pattern) => lower.includes(pattern))) return true;
+  if (provider === 'claude' && ANTHROPIC_BAN_PATTERNS.some((pattern) => lower.includes(pattern))) {
+    return true;
+  }
+  return false;
+}
+
+/** Return the actor name (Google, Anthropic, etc.) for ban copy. */
+function banActor(provider: CLIProxyProvider): string {
+  if (provider === 'claude') return 'Anthropic';
+  return 'Google';
 }
 
 /**
@@ -595,10 +612,11 @@ export function handleBanDetection(
   accountId: string,
   errorMessage: string
 ): boolean {
-  if (!isBanResponse(errorMessage)) return false;
+  if (!isBanResponse(errorMessage, provider)) return false;
 
+  const actor = banActor(provider);
   console.error('');
-  console.error(warn('Account safety: account appears disabled by Google'));
+  console.error(warn(`Account safety: account appears disabled by ${actor}`));
   console.error(`    Account "${maskEmail(accountId)}" (${provider}) returned:`);
   console.error(`    "${truncate(errorMessage, 120)}"`);
   console.error('');
