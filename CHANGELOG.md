@@ -1,3 +1,20 @@
+## [8.4.0](https://github.com/kaitranntt/ccs/compare/v8.3.0...v8.4.0) (2026-06-16)
+
+### Features
+
+* **bar:** bundle a macOS app icon ([30ed7c4](https://github.com/kaitranntt/ccs/commit/30ed7c42b1c8a24fc10d1c788a532e1a3198a410)), closes [#1525](https://github.com/kaitranntt/ccs/issues/1525)
+* **bar:** run the CCS server detached with serve/stop/status ([b5ef06a](https://github.com/kaitranntt/ccs/commit/b5ef06a4d5fe0ea2a83110947a2772b8ea87ee3f)), closes [#1526](https://github.com/kaitranntt/ccs/issues/1526)
+* **bar:** self-start the server from the app and stop dropdown clipping ([64fbf2e](https://github.com/kaitranntt/ccs/commit/64fbf2e0621aca4398693de5b5ef43b9448bfecc)), closes [#1526](https://github.com/kaitranntt/ccs/issues/1526) [#1527](https://github.com/kaitranntt/ccs/issues/1527)
+
+### Bug Fixes
+
+* **bar:** anchor menu panel to top and stop full-screen sizing ([#1530](https://github.com/kaitranntt/ccs/issues/1530)) ([842857d](https://github.com/kaitranntt/ccs/commit/842857dec6035625b14ec81c77045b4562004575))
+* **cliproxy:** resolve plus release asset variants ([#1523](https://github.com/kaitranntt/ccs/issues/1523)) ([9e9cddd](https://github.com/kaitranntt/ccs/commit/9e9cddd101dc7ae91d9e8051e6f172747a0fc1b4)), closes [#1522](https://github.com/kaitranntt/ccs/issues/1522)
+
+### Documentation
+
+* **bar:** document detached launch model and serve/stop/status ([#1529](https://github.com/kaitranntt/ccs/issues/1529)) ([b03e2e1](https://github.com/kaitranntt/ccs/commit/b03e2e1cb2dbc30e4a9f923ffd4bbb5bd817732c))
+
 ## [8.3.0](https://github.com/kaitranntt/ccs/compare/v8.2.0...v8.3.0) (2026-06-14)
 
 ### Features
