@@ -97,7 +97,7 @@ describe('provider-presets', () => {
     expect(preset?.id).toBe('tuningengines');
     expect(preset?.baseUrl).toBe('https://api.tuningengines.com/v1');
     expect(preset?.defaultProfileName).toBe('te');
-    expect(preset?.defaultModel).toBe('llama-3.3-70b-fp8');
+    expect(preset?.defaultModel).toBe('gpt-4o');
     expect(preset?.defaultTarget).toBe('droid');
     expect(preset?.apiKeyPlaceholder).toBe('sk-te-...');
     expect(getPresetById('te')?.id).toBe('tuningengines');
