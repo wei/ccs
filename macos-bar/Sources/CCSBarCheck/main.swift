@@ -758,6 +758,35 @@ do {
   check(t1.firedKeys.isEmpty, "prune collapses stale-bucket + absent-account keys (bounded)")
 }
 
+// (H) Duplicate account ids from a malformed summary must not crash pruning.
+do {
+  let rows = [
+    BarSummaryRow(
+      accountId: "dup@example.com", provider: "agy", quotaPercentage: 5, quotaStatus: "ok",
+      nextReset: "2026-07-01T00:00:00Z"),
+    BarSummaryRow(
+      accountId: "dup@example.com", provider: "agy", quotaPercentage: 4, quotaStatus: "ok",
+      nextReset: "2026-08-01T00:00:00Z"),
+  ]
+  let prior: Set<String> = [
+    "quotaRemainingBelow|agy:dup@example.com|2026-07-01T00:00:00Z|L10",
+    "quotaRemainingBelow|agy:dup@example.com|2026-08-01T00:00:00Z|L10",
+    "quotaRemainingBelow|agy:dup@example.com|2026-09-01T00:00:00Z|L10",
+  ]
+  let ev = BarAlertEngine.evaluate(
+    rows: rows, analytics: nil, prefs: BarAlertPrefs(quotaLevels: [10]), priorFiredKeys: prior,
+    now: engineNow, calendar: utc)
+  check(
+    ev.firedKeys.contains("quotaRemainingBelow|agy:dup@example.com|2026-07-01T00:00:00Z|L10"),
+    "duplicate ids: prune keeps first present reset bucket")
+  check(
+    ev.firedKeys.contains("quotaRemainingBelow|agy:dup@example.com|2026-08-01T00:00:00Z|L10"),
+    "duplicate ids: prune keeps second present reset bucket")
+  check(
+    !ev.firedKeys.contains("quotaRemainingBelow|agy:dup@example.com|2026-09-01T00:00:00Z|L10"),
+    "duplicate ids: prune drops absent reset bucket")
+}
+
 // (H) Deterministic order: shuffled rows produce notifs in stable id order.
 do {
   let rows = [
@@ -906,13 +935,19 @@ check(
   BarFormatting.providerLabel("codex") == "Codex", "native: providerLabel maps codex -> 'Codex'")
 check(BarFormatting.providerLabel("agy") == "agy", "native: providerLabel passes CLIProxy keys through")
 check(
-  BarFormatting.isNativeSubscription(provider: "claude-code"),
+  BarFormatting.isNativeSubscription(
+    BarSummaryRow(accountId: "claude-code", provider: "claude-code")),
   "native: claude-code is a native subscription")
 check(
-  BarFormatting.isNativeSubscription(provider: "codex"), "native: codex is a native subscription")
+  BarFormatting.isNativeSubscription(BarSummaryRow(accountId: "codex", provider: "codex")),
+  "native: codex is a native subscription")
 check(
-  !BarFormatting.isNativeSubscription(provider: "agy"),
+  !BarFormatting.isNativeSubscription(BarSummaryRow(accountId: "agy-a", provider: "agy")),
   "native: agy (CLIProxy pool) is NOT a native subscription")
+check(
+  !BarFormatting.isNativeSubscription(
+    BarSummaryRow(accountId: "pool-codex-oauth-1", provider: "codex")),
+  "native: codex CLIProxy pool row is NOT a native subscription")
 
 // (N6) Grouping: a mixed list splits into native subscriptions (top) and pool
 //      accounts, preserving backend order within each group.
@@ -922,17 +957,19 @@ do {
     BarSummaryRow(
       accountId: "claude-code", provider: "claude-code", quotaPercentage: 40, quotaStatus: "ok"),
     BarSummaryRow(accountId: "pool-b", provider: "ghcp", quotaStatus: "unsupported"),
+    BarSummaryRow(
+      accountId: "pool-codex-oauth-1", provider: "codex", quotaPercentage: 65, quotaStatus: "ok"),
     BarSummaryRow(accountId: "codex", provider: "codex", quotaPercentage: 52, quotaStatus: "ok"),
   ]
   let parts = BarFormatting.partitionSubscriptions(mixed)
   check(parts.subscriptions.count == 2, "native: partition pulls 2 subscriptions")
-  check(parts.pool.count == 2, "native: partition leaves 2 pool accounts")
+  check(parts.pool.count == 3, "native: partition leaves 3 pool accounts")
   check(
     parts.subscriptions.map { $0.provider } == ["claude-code", "codex"],
     "native: subscriptions keep backend order (claude-code, codex)")
   check(
-    parts.pool.map { $0.provider } == ["agy", "ghcp"],
-    "native: pool keeps backend order (agy, ghcp)")
+    parts.pool.map { $0.id } == ["agy:pool-a", "ghcp:pool-b", "codex:pool-codex-oauth-1"],
+    "native: pool keeps backend order and retains CLIProxy codex row")
 }
 
 // (N7) Pool-only list does NOT get split (single "Accounts" header path): both

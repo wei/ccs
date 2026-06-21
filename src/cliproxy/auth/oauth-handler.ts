@@ -16,6 +16,7 @@ import { fail, info, warn, color, ok } from '../../utils/ui';
 import { createLogger } from '../../services/logging';
 import { ensureCLIProxyBinary, getStoredConfiguredBackend } from '../binary-manager';
 import { generateConfig } from '../config/config-generator';
+import { AuthError, ConfigError } from '../../errors/error-types';
 import { CLIProxyBackend, CLIProxyProvider } from '../types';
 import {
   AccountInfo,
@@ -78,6 +79,7 @@ import {
 import { maybeOfferPoolRouting } from '../routing/pool-opt-in-prompt';
 import { checkCrossLaneEmailOverlap } from '../accounts/account-safety-cross-lane';
 import { ensureCliAntigravityResponsibility } from '../auth/antigravity-responsibility';
+import { getUnsupportedAuthStartReason } from '../provider-capabilities';
 import { InteractivePrompt } from '../../utils/prompt';
 import { getCcsDir } from '../../utils/config-manager';
 import { generateSessionId } from './project-selection-handler';
@@ -247,8 +249,9 @@ export async function requestPasteCallbackStart(
     kiroMethod: options?.kiroMethod,
   });
   if (!startPath) {
-    throw new Error(
-      `Paste-callback start is not available for ${provider} with the selected method`
+    throw new AuthError(
+      `Paste-callback start is not available for ${provider} with the selected method`,
+      provider
     );
   }
   const normalizedGitLabBaseUrl =
@@ -261,7 +264,7 @@ export async function requestPasteCallbackStart(
   });
 
   if (!response.ok) {
-    throw new Error(`OAuth start failed with status ${response.status}`);
+    throw new AuthError(`OAuth start failed with status ${response.status}`, provider);
   }
 
   return (await response.json()) as PasteCallbackStartData;
@@ -315,11 +318,11 @@ export function normalizeGitLabBaseUrl(baseUrl: string | undefined): string | un
   try {
     parsed = new URL(normalized);
   } catch {
-    throw new Error('GitLab URL must be a valid http:// or https:// URL');
+    throw new ConfigError('GitLab URL must be a valid http:// or https:// URL');
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('GitLab URL must use http:// or https://');
+    throw new ConfigError('GitLab URL must use http:// or https://');
   }
 
   parsed.hash = '';
@@ -614,12 +617,17 @@ function buildOAuthArgs(
     kiroIDCFlow?: OAuthOptions['kiroIDCFlow'];
   } = {}
 ): string[] {
+  const unsupportedReason = getUnsupportedAuthStartReason(provider);
+  if (unsupportedReason) {
+    throw new AuthError(unsupportedReason, provider);
+  }
+
   const args = ['--config', configPath];
 
   if (provider === 'kiro') {
     const method = normalizeKiroAuthMethod(options.kiroMethod);
     if (!isKiroCLIAuthMethod(method)) {
-      throw new Error(`Kiro auth method '${method}' is not supported by CLI flow.`);
+      throw new AuthError(`Kiro auth method '${method}' is not supported by CLI flow.`, 'kiro');
     }
     args.push(
       ...getKiroCLIAuthArgs(method, {
@@ -1089,6 +1097,12 @@ export async function triggerOAuth(
   options: OAuthOptions = {}
 ): Promise<AccountInfo | null> {
   const oauthConfig = getOAuthConfig(provider);
+  const unsupportedReason = getUnsupportedAuthStartReason(provider);
+  if (unsupportedReason) {
+    console.log(fail(unsupportedReason));
+    return null;
+  }
+
   warnOAuthBanRisk(provider);
   const oauthStartedAt = Date.now();
   logger.stage('auth', 'cliproxy.oauth.start', 'Triggering OAuth flow', {

@@ -31,7 +31,11 @@ import {
   normalizeIFlowLegacyModelAliases,
   normalizeModelIdForProvider,
 } from '../ai-providers/model-id-normalizer';
-import { getGlobalEnvConfig, getCcsDir } from '../../config/config-loader-facade';
+import {
+  getGlobalEnvConfig,
+  getOutputLimitsEnv,
+  getCcsDir,
+} from '../../config/config-loader-facade';
 
 /** Settings file structure for user overrides */
 interface ProviderSettings {
@@ -201,8 +205,14 @@ export function getModelMapping(provider: CLIProxyProvider): ProviderModelMappin
 
 /**
  * Get environment variables for Claude CLI (bundled defaults)
- * Uses provider-specific endpoint (e.g., /api/provider/gemini) for explicit routing.
- * This enables concurrent gemini/codex usage - each session routes to its provider via URL path.
+ * Uses provider-specific endpoints (e.g., /api/provider/gemini) for explicit routing
+ * except for the built-in claude provider.
+ *
+ * Root-URL exception: the claude provider always uses the CLIProxy ROOT endpoint
+ * (http://127.0.0.1:<port>) instead of /api/provider/claude.  CLIProxyAPI's Claude Code
+ * contract registers /v1/messages at the root; the /api/provider/ prefix is a Plus-only
+ * feature for non-Claude providers.  buildCliproxyProviderPath() encodes this rule and is
+ * used here and by the api-create bridge path so both remain consistent.
  *
  * For the claude built-in provider the model env vars are intentionally omitted so that
  * the user's own Claude Code /model selection is honored end-to-end (model-neutral passthrough).
@@ -227,7 +237,7 @@ export function getClaudeEnvVars(
 
   // Core transport env vars set dynamically for all providers
   const coreEnvVars: NodeJS.ProcessEnv = {
-    ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/api/provider/${provider}`,
+    ANTHROPIC_BASE_URL: buildLocalProviderBaseUrl(provider, port),
     ANTHROPIC_AUTH_TOKEN: getEffectiveApiKey(),
   };
 
@@ -310,13 +320,21 @@ export function resolveProviderSettingsPath(provider: CLIProxyProvider): string 
 /**
  * Get global env vars to inject into all third-party profiles.
  * Returns empty object if disabled.
+ *
+ * Opt-in output limits (issue #231) are merged in on top of the global env so
+ * they reach every cliproxy launch path (local, remote, composite). When unset,
+ * getOutputLimitsEnv() returns {} and nothing is injected, preserving the
+ * downstream CLI's own default caps. Output limits are independent of the
+ * global_env enable flag: a user can opt into limits without enabling global
+ * telemetry-disable env.
  */
 function getGlobalEnvVars(): Record<string, string> {
+  const outputLimitsEnv = getOutputLimitsEnv();
   const globalEnvConfig = getGlobalEnvConfig();
   if (!globalEnvConfig.enabled) {
-    return {};
+    return { ...outputLimitsEnv };
   }
-  return globalEnvConfig.env;
+  return { ...globalEnvConfig.env, ...outputLimitsEnv };
 }
 
 /**
@@ -358,6 +376,25 @@ function ensureRequiredEnvVars(
 const LOCALHOST_NAMES = new Set(['127.0.0.1', 'localhost', '0.0.0.0']);
 
 /**
+ * Return the CLIProxy route path for a provider.
+ *
+ * - claude uses the root path (empty string → "/" after buildProxyUrl normalises it)
+ *   because CLIProxyAPI's Claude Code contract registers /v1/messages at the root; the
+ *   /api/provider/ prefix is Plus-only and only for non-Claude providers.
+ * - all other providers use the scoped /api/provider/<x> path.
+ *
+ * Exported so the profile-bridge can reuse the same rule (DRY).
+ */
+export function buildCliproxyProviderPath(provider: CLIProxyProvider): string {
+  return provider === 'claude' ? '' : `/api/provider/${provider}`;
+}
+
+function buildLocalProviderBaseUrl(provider: CLIProxyProvider, port: number): string {
+  const rootUrl = `http://127.0.0.1:${port}`;
+  return provider === 'claude' ? rootUrl : `${rootUrl}/api/provider/${provider}`;
+}
+
+/**
  * Normalize local CLIProxy endpoint to the expected provider route.
  * Only rewrites localhost URLs that target the active local port.
  */
@@ -377,6 +414,10 @@ function normalizeLocalProviderBaseUrl(
         ? 443
         : 80;
     if (!Number.isFinite(effectivePort) || effectivePort !== port) return baseUrl;
+
+    if (provider === 'claude') {
+      return parsed.origin;
+    }
 
     const expectedPath = `/api/provider/${provider}`;
     if (parsed.pathname === expectedPath && !parsed.search && !parsed.hash) return baseUrl;
@@ -416,7 +457,9 @@ function rewriteLocalhostUrls(
   // Omit port suffix for standard web ports (80/443) for cleaner URLs
   const standardWebPort = normalizedProtocol === 'https' ? 443 : 80;
   const portSuffix = effectivePort === standardWebPort ? '' : `:${effectivePort}`;
-  const remoteBaseUrl = `${normalizedProtocol}://${remoteConfig.host}${portSuffix}/api/provider/${provider}`;
+  const remoteRootUrl = `${normalizedProtocol}://${remoteConfig.host}${portSuffix}`;
+  const remoteBaseUrl =
+    provider === 'claude' ? remoteRootUrl : `${remoteRootUrl}/api/provider/${provider}`;
 
   result.ANTHROPIC_BASE_URL = remoteBaseUrl;
 
@@ -465,7 +508,10 @@ export function getEffectiveEnvVars(
           migrateDeprecatedModelNames(expandedPath, provider, settings);
           // Migrate legacy iFlow placeholders to supported model IDs
           migrateIFlowPlaceholderModel(expandedPath, provider, settings);
-          // Custom variant settings found - merge with global env
+          // Custom variant settings found - merge with global env.
+          // settings.env is spread AFTER globalEnv, so an explicit per-variant
+          // value (e.g. MAX_MCP_OUTPUT_TOKENS) intentionally overrides the
+          // config.runtime.outputLimits value carried in globalEnv.
           envVars = { ...globalEnv, ...settings.env };
           // Ensure required vars are present (fall back to defaults if missing)
           envVars = ensureRequiredEnvVars(envVars, provider, port);
@@ -498,7 +544,10 @@ export function getEffectiveEnvVars(
         migrateDeprecatedModelNames(settingsPath, provider, settings);
         // Migrate legacy iFlow placeholders to supported model IDs
         migrateIFlowPlaceholderModel(settingsPath, provider, settings);
-        // User override found - merge with global env
+        // User override found - merge with global env.
+        // settings.env is spread AFTER globalEnv, so an explicit per-variant
+        // value (e.g. MAX_MCP_OUTPUT_TOKENS) intentionally overrides the
+        // config.runtime.outputLimits value carried in globalEnv.
         envVars = { ...globalEnv, ...settings.env };
         // Ensure required vars are present (fall back to defaults if missing)
         envVars = ensureRequiredEnvVars(envVars, provider, port);
@@ -692,6 +741,18 @@ export function ensureProviderSettings(provider: CLIProxyProvider): void {
         mergedEnv[key] = fallback;
         mutated = true;
       }
+    }
+  }
+
+  if (provider === 'claude' && typeof mergedEnv.ANTHROPIC_BASE_URL === 'string') {
+    const normalizedBaseUrl = normalizeLocalProviderBaseUrl(
+      mergedEnv.ANTHROPIC_BASE_URL,
+      provider,
+      CLIPROXY_DEFAULT_PORT
+    );
+    if (normalizedBaseUrl !== mergedEnv.ANTHROPIC_BASE_URL) {
+      mergedEnv.ANTHROPIC_BASE_URL = normalizedBaseUrl;
+      mutated = true;
     }
   }
 

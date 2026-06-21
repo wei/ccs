@@ -18,6 +18,7 @@ import {
   DEFAULT_LOGGING_CONFIG,
   DEFAULT_OFFICIAL_CHANNELS_CONFIG,
   DEFAULT_THINKING_CONFIG,
+  buildOutputLimitsEnv,
 } from '../unified-config-types';
 import type {
   BrowserConfig,
@@ -50,6 +51,13 @@ function getConfig(): import('../unified-config-types').UnifiedConfig {
     loadOrCreateUnifiedConfig: () => import('../unified-config-types').UnifiedConfig;
   };
   return loader.loadOrCreateUnifiedConfig();
+}
+
+function getPersistedConfig(): import('../unified-config-types').UnifiedConfig | null {
+  const loader = require('../unified-config-loader') as {
+    loadUnifiedConfig: () => import('../unified-config-types').UnifiedConfig | null;
+  };
+  return loader.loadUnifiedConfig();
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +187,19 @@ export function getGlobalEnvConfig(): GlobalEnvConfig {
 }
 
 /**
+ * Get opt-in output-limit env vars for the spawned downstream CLI (issue #231).
+ *
+ * Returns ONLY the env vars the user has explicitly configured under
+ * config.runtime.outputLimits. When the section is absent or empty, returns an
+ * empty object so callers inject nothing and the downstream CLI keeps its own
+ * defaults. All values are strings.
+ */
+export function getOutputLimitsEnv(): Record<string, string> {
+  const config = getConfig();
+  return buildOutputLimitsEnv(config.runtime?.outputLimits);
+}
+
+/**
  * Get continuity inheritance mapping.
  * Returns empty mapping when not configured.
  */
@@ -291,6 +312,22 @@ export function getDashboardAuthConfig(): DashboardAuthConfig {
 export function getBrowserConfig(): BrowserConfig {
   const config = getConfig();
   return canonicalizeBrowserConfig(config.browser);
+}
+
+/**
+ * Return whether the persisted browser config explicitly defines
+ * claude.devtools_port. Canonicalized BrowserConfig values always contain a
+ * default port, so config-backed browser attach callers must use this raw
+ * persisted shape to decide whether the port should bypass profile discovery.
+ */
+export function hasExplicitClaudeBrowserDevtoolsPort(): boolean {
+  const claude = getPersistedConfig()?.browser?.claude;
+  if (!claude || !Object.prototype.hasOwnProperty.call(claude, 'devtools_port')) {
+    return false;
+  }
+
+  const port = claude.devtools_port;
+  return Number.isFinite(port) && Math.floor(port as number) === port && port >= 1 && port <= 65535;
 }
 
 /**

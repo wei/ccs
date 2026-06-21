@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { BAR_AUTH_TOKEN_HEADER, getOrCreateBarAuthToken } from '../../../src/utils/bar-auth-token';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,6 +25,7 @@ let tempHome: string;
 let originalCcsHome: string | undefined;
 let originalConsoleLog: typeof console.log;
 let originalConsoleError: typeof console.error;
+const FAKE_SHA256 = 'a'.repeat(64);
 
 function captureConsole(): void {
   originalConsoleLog = console.log;
@@ -273,10 +275,18 @@ function makeDetachedDeps(ccsDir: string, port = 4242) {
   return {
     findRunningServer: async () => null,
     getPort: async () => port,
-    spawnDetachedServer: (_p: number, _log: string) => { /* noop */ },
-    waitForServerLive: async (_url: string) => { /* live immediately */ },
-    writeLaunchDescriptor: () => { /* noop */ },
-    openApp: async (_appPath: string) => { /* noop */ },
+    spawnDetachedServer: (_p: number, _log: string) => {
+      /* noop */
+    },
+    waitForServerLive: async (_url: string) => {
+      /* live immediately */
+    },
+    writeLaunchDescriptor: () => {
+      /* noop */
+    },
+    openApp: async (_appPath: string) => {
+      /* noop */
+    },
     getCcsDir: () => ccsDir,
     appInstallPath: path.join(tempHome, 'Applications', 'CCS Bar.app'),
   };
@@ -405,12 +415,11 @@ describe('bar install subcommand', () => {
     await handleBarInstall([], {
       fetchReleaseAsset: async (tag: string, _asset: string) => {
         fetchedUrls.push(tag);
-        return { downloadUrl: FAKE_DOWNLOAD_URL };
+        return { downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 };
       },
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async (_baseUrl: string) => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -422,6 +431,29 @@ describe('bar install subcommand', () => {
     expect(fetchedUrls).not.toContain(expect.stringMatching(/^\d+\.\d+\.\d+$/));
   });
 
+  it('passes the release asset sha256 digest to the downloader before install', async () => {
+    const appsDir = path.join(tempHome, 'Applications');
+    const seenDigests: string[] = [];
+
+    const { handleBarInstall } = await loadInstallSubcommand();
+
+    await handleBarInstall([], {
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
+      downloadAndExtract: async (_url: string, dest: string, expectedSha256: string) => {
+        seenDigests.push(expectedSha256);
+        fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
+      },
+      verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
+      readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
+      isBarRunning: async () => false,
+      promptLaunch: async () => false,
+      getCcsDir: () => path.join(tempHome, '.ccs'),
+      getAppsDir: () => appsDir,
+    });
+
+    expect(seenDigests).toEqual([FAKE_SHA256]);
+  });
+
   it('pins the Info.plist version (not tag name) to ~/.ccs/bar/.version', async () => {
     const ccsDir = path.join(tempHome, '.ccs');
     const appsDir = path.join(tempHome, 'Applications');
@@ -430,11 +462,10 @@ describe('bar install subcommand', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -453,14 +484,13 @@ describe('bar install subcommand', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async (baseUrl: string) => {
         compatCalls.push(baseUrl);
         return { compatible: true, reason: 'ok' };
       },
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -476,11 +506,10 @@ describe('bar install subcommand', () => {
 
     await expect(
       handleBarInstall([], {
-        fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+        fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
         downloadAndExtract: fakeExtract(appsDir),
         verifyCompat: async () => ({ compatible: false, reason: 'no-bar-api' }),
         readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-        clearQuarantine: async () => true,
         isBarRunning: async () => false,
         promptLaunch: async () => false,
         getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -496,14 +525,12 @@ describe('bar install subcommand', () => {
     const appsDir = path.join(tempHome, 'Applications');
     const { handleBarInstall } = await loadInstallSubcommand();
 
-    // Inject clearQuarantine returning false so the fallback xattr guidance is
-    // always printed regardless of host platform (/usr/bin/xattr availability).
+    // Gatekeeper quarantine is preserved (not cleared) — the note is always printed.
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
       getAppsDir: () => appsDir,
     });
@@ -572,7 +599,6 @@ describe('bar install: redirect-following download (#8)', () => {
       downloadAndExtract: redirectFollowingExtract,
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -737,14 +763,13 @@ describe('bar install: compat capability handshake', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async (baseUrl: string) => {
         capturedArgs.push({ baseUrl });
         return { compatible: true, reason: 'ok' };
       },
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -761,11 +786,10 @@ describe('bar install: compat capability handshake', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -783,11 +807,10 @@ describe('bar install: compat capability handshake', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: false, reason: 'no-bar-api' }),
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -806,11 +829,10 @@ describe('bar install: compat capability handshake', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: false, reason: 'unreachable' }),
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -829,13 +851,12 @@ describe('bar install: compat capability handshake', () => {
 
     await expect(
       handleBarInstall([], {
-        fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+        fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
         downloadAndExtract: fakeExtract(appsDir),
         verifyCompat: async () => {
           throw new Error('network explosion');
         },
         readAppBundleVersion: (_appPath: string) => '1.4.0',
-        clearQuarantine: async () => true,
         isBarRunning: async () => false,
         promptLaunch: async () => false,
         getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -867,7 +888,6 @@ describe('bar install: post-extract app-exists assertion (#12)', () => {
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => '1.0.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -948,12 +968,11 @@ describe('bar install: Info.plist version extraction regression tests', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // readAppBundleVersion returns the real version from Info.plist
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -974,11 +993,10 @@ describe('bar install: Info.plist version extraction regression tests', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => '1.4.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -1000,12 +1018,11 @@ describe('bar install: Info.plist version extraction regression tests', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // Unreadable Info.plist — returns null
       readAppBundleVersion: (_appPath: string) => null,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -1084,7 +1101,6 @@ describe('bar install: Info.plist version extraction regression tests', () => {
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // readAppBundleVersion intentionally omitted → uses production default
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -1122,7 +1138,6 @@ describe('bar install: Info.plist version extraction regression tests', () => {
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // readAppBundleVersion omitted → uses production default
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -1462,7 +1477,6 @@ describe('bar install: zip-slip guard (fix #14)', () => {
       downloadAndExtract: safeExtract,
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: (_appPath: string) => FAKE_VERSION,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
@@ -1501,12 +1515,11 @@ describe('bar install: stale version-pin removal on null plist read (Fix 1)', ()
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // Simulate unreadable Info.plist
       readAppBundleVersion: (_appPath: string) => null,
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -1593,19 +1606,28 @@ describe('launch: findRunningServer reuse-first (GH-1500)', () => {
     await handleBarLaunch([], {
       findRunningServer: async () => ({ port: 3000, baseUrl: 'http://127.0.0.1:3000' }),
       getPort: async () => 9999,
-      spawnDetachedServer: () => { spawnCalled = true; },
-      waitForServerLive: async () => { /* noop */ },
-      writeLaunchDescriptor: () => { /* noop */ },
-      openApp: async () => { /* noop */ },
+      spawnDetachedServer: () => {
+        spawnCalled = true;
+      },
+      waitForServerLive: async () => {
+        /* noop */
+      },
+      writeLaunchDescriptor: () => {
+        /* noop */
+      },
+      openApp: async () => {
+        /* noop */
+      },
       getCcsDir: () => ccsDir,
       appInstallPath: path.join(tempHome, 'Applications', 'CCS Bar.app'),
     });
 
     expect(spawnCalled).toBe(false);
 
-    const barJson = JSON.parse(
-      fs.readFileSync(path.join(ccsDir, 'bar.json'), 'utf8')
-    ) as { port: number; baseUrl: string };
+    const barJson = JSON.parse(fs.readFileSync(path.join(ccsDir, 'bar.json'), 'utf8')) as {
+      port: number;
+      baseUrl: string;
+    };
     expect(barJson.port).toBe(3000);
     expect(barJson.baseUrl).toBe('http://127.0.0.1:3000');
 
@@ -1623,10 +1645,18 @@ describe('launch: findRunningServer reuse-first (GH-1500)', () => {
     await handleBarLaunch([], {
       findRunningServer: async () => null,
       getPort: async () => 4242,
-      spawnDetachedServer: () => { spawnCalled = true; },
-      waitForServerLive: async () => { /* live */ },
-      writeLaunchDescriptor: () => { /* noop */ },
-      openApp: async () => { /* noop */ },
+      spawnDetachedServer: () => {
+        spawnCalled = true;
+      },
+      waitForServerLive: async () => {
+        /* live */
+      },
+      writeLaunchDescriptor: () => {
+        /* noop */
+      },
+      openApp: async () => {
+        /* noop */
+      },
       getCcsDir: () => ccsDir,
       appInstallPath: path.join(tempHome, 'Applications', 'CCS Bar.app'),
     });
@@ -1646,10 +1676,18 @@ describe('launch: findRunningServer reuse-first (GH-1500)', () => {
         throw new Error('probe exploded');
       },
       getPort: async () => 4242,
-      spawnDetachedServer: () => { spawnCalled = true; },
-      waitForServerLive: async () => { /* live */ },
-      writeLaunchDescriptor: () => { /* noop */ },
-      openApp: async () => { /* noop */ },
+      spawnDetachedServer: () => {
+        spawnCalled = true;
+      },
+      waitForServerLive: async () => {
+        /* live */
+      },
+      writeLaunchDescriptor: () => {
+        /* noop */
+      },
+      openApp: async () => {
+        /* noop */
+      },
       getCcsDir: () => ccsDir,
       appInstallPath: path.join(tempHome, 'Applications', 'CCS Bar.app'),
     });
@@ -1675,9 +1713,15 @@ describe('launch: bar.json contract (deterministic — GH-1500 null probe)', () 
     await handleBarLaunch([], {
       findRunningServer: async () => null,
       getPort: async () => 4242,
-      spawnDetachedServer: () => { /* noop */ },
-      waitForServerLive: async () => { /* live */ },
-      writeLaunchDescriptor: () => { /* noop */ },
+      spawnDetachedServer: () => {
+        /* noop */
+      },
+      waitForServerLive: async () => {
+        /* live */
+      },
+      writeLaunchDescriptor: () => {
+        /* noop */
+      },
       openApp: async (_appPath: string) => {
         calls.push(`open:${_appPath}`);
       },
@@ -1685,9 +1729,7 @@ describe('launch: bar.json contract (deterministic — GH-1500 null probe)', () 
       appInstallPath: path.join(tempHome, 'Applications', 'CCS Bar.app'),
     });
 
-    const barJson = JSON.parse(
-      fs.readFileSync(path.join(ccsDir, 'bar.json'), 'utf8')
-    ) as unknown;
+    const barJson = JSON.parse(fs.readFileSync(path.join(ccsDir, 'bar.json'), 'utf8')) as unknown;
     expect(barJson).toMatchObject({
       baseUrl: 'http://127.0.0.1:4242',
       port: 4242,
@@ -1704,9 +1746,18 @@ describe('defaultFindRunningServer (GH-1500)', () => {
   it('detects a real HTTP server responding 200 on /api/bar/summary', async () => {
     const http = await import('http');
 
-    // Start an ephemeral server that responds 200 to /api/bar/summary.
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
+    // Start an ephemeral server that responds 200 to /api/bar/summary with the shared token.
+    // The server echoes the token unconditionally (reading it from the file), mirroring
+    // production behavior: only a process that owns the 0600 file can produce the value.
     const server = http.createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const token = getOrCreateBarAuthToken(ccsDir);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        [BAR_AUTH_TOKEN_HEADER]: token,
+      });
       res.end('{}');
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -1714,11 +1765,13 @@ describe('defaultFindRunningServer (GH-1500)', () => {
     const livePort = addr.port;
 
     // Seed bar.json with the live port so it is checked first.
-    const ccsDir = path.join(tempHome, '.ccs');
-    fs.mkdirSync(ccsDir, { recursive: true });
     fs.writeFileSync(
       path.join(ccsDir, 'bar.json'),
-      JSON.stringify({ port: livePort, baseUrl: `http://127.0.0.1:${livePort}`, authMode: 'loopback' })
+      JSON.stringify({
+        port: livePort,
+        baseUrl: `http://127.0.0.1:${livePort}`,
+        authMode: 'loopback',
+      })
     );
 
     moduleSeq++;
@@ -1726,7 +1779,9 @@ describe('defaultFindRunningServer (GH-1500)', () => {
       `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
     );
     const { defaultFindRunningServer } = mod as {
-      defaultFindRunningServer: (ccsDir: string) => Promise<{ port: number; baseUrl: string } | null>;
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string } | null>;
     };
 
     let result: { port: number; baseUrl: string } | null = null;
@@ -1739,6 +1794,51 @@ describe('defaultFindRunningServer (GH-1500)', () => {
     expect(result).not.toBeNull();
     expect(result?.port).toBe(livePort);
     expect(result?.baseUrl).toBe(`http://127.0.0.1:${livePort}`);
+  });
+
+  it('rejects a spoofed 200 response without the CCS Bar auth token', async () => {
+    const http = await import('http');
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"not":"ccs"}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const livePort = (server.address() as { port: number }).port;
+
+    fs.writeFileSync(
+      path.join(ccsDir, 'bar.json'),
+      JSON.stringify({
+        port: livePort,
+        baseUrl: `http://127.0.0.1:${livePort}`,
+        authMode: 'loopback',
+      })
+    );
+
+    moduleSeq++;
+    const mod = await import(
+      `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
+    );
+    const { defaultFindRunningServer } = mod as {
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string } | null>;
+    };
+
+    let result: { port: number; baseUrl: string } | null = null;
+    try {
+      result = await defaultFindRunningServer(ccsDir);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    if (result !== null) {
+      expect(result.port).not.toBe(livePort);
+    } else {
+      expect(result).toBeNull();
+    }
   });
 
   it('returns null when no server is listening on the seeded port (port outside default candidates)', async () => {
@@ -1796,7 +1896,9 @@ describe('defaultFindRunningServer (GH-1500)', () => {
       `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
     );
     const { defaultFindRunningServer } = mod as {
-      defaultFindRunningServer: (ccsDir: string) => Promise<{ port: number; baseUrl: string } | null>;
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string } | null>;
     };
 
     const result = await defaultFindRunningServer(ccsDir);
@@ -1834,11 +1936,43 @@ describe('defaultFindRunningServer (GH-1500)', () => {
       return;
     }
 
+    // Some runners route bracketed IPv6 HTTP through an environment proxy even
+    // though raw ::1 sockets work. Skip in that environment; the production
+    // probe still supports ::1 where direct loopback HTTP is available.
+    const { request } = await import('undici');
+    const httpProbe = http.createServer((_req, res) => {
+      res.writeHead(204);
+      res.end();
+    });
+    await new Promise<void>((resolve) => httpProbe.listen(0, '::1', resolve));
+    const httpProbePort = (httpProbe.address() as { port: number }).port;
+    try {
+      const { statusCode, body } = await request(`http://[::1]:${httpProbePort}/`, {
+        headersTimeout: 1500,
+        bodyTimeout: 1500,
+      });
+      await body.text();
+      if (statusCode !== 204) {
+        console.log('[i] Skipping IPv6 loopback test: ::1 HTTP is not direct on this runner');
+        return;
+      }
+    } finally {
+      await new Promise<void>((resolve) => httpProbe.close(() => resolve()));
+    }
+
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
     // Start an ephemeral HTTP server bound exclusively to ::1.
     // This simulates `ccs config` starting the web-server with host 'localhost'
     // on macOS, where 'localhost' resolves to ::1.
+    // The server echoes the token unconditionally (from the file), mirroring production.
     const server = http.createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const token = getOrCreateBarAuthToken(ccsDir);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        [BAR_AUTH_TOKEN_HEADER]: token,
+      });
       res.end('{}');
     });
     await new Promise<void>((resolve) => server.listen(0, '::1', resolve));
@@ -1846,8 +1980,6 @@ describe('defaultFindRunningServer (GH-1500)', () => {
     const livePort = addr.port;
 
     // Seed bar.json with the live port so it is checked first.
-    const ccsDir = path.join(tempHome, '.ccs');
-    fs.mkdirSync(ccsDir, { recursive: true });
     fs.writeFileSync(
       path.join(ccsDir, 'bar.json'),
       JSON.stringify({ port: livePort, baseUrl: `http://[::1]:${livePort}`, authMode: 'loopback' })
@@ -1858,7 +1990,9 @@ describe('defaultFindRunningServer (GH-1500)', () => {
       `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
     );
     const { defaultFindRunningServer } = mod as {
-      defaultFindRunningServer: (ccsDir: string) => Promise<{ port: number; baseUrl: string } | null>;
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string } | null>;
     };
 
     let result: { port: number; baseUrl: string } | null = null;
@@ -1884,9 +2018,17 @@ describe('defaultFindRunningServer: priority over response speed (GH-1500)', () 
   it('returns bar.json port even when a lower-priority port responds faster', async () => {
     const http = await import('http');
 
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
     // Lower-priority server (default port candidate): responds immediately with 200.
+    // Echoes token unconditionally (from file), mirroring production behavior.
     const fastServer = http.createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const token = getOrCreateBarAuthToken(ccsDir);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        [BAR_AUTH_TOKEN_HEADER]: token,
+      });
       res.end('{}');
     });
     await new Promise<void>((resolve) => fastServer.listen(0, '127.0.0.1', resolve));
@@ -1895,8 +2037,12 @@ describe('defaultFindRunningServer: priority over response speed (GH-1500)', () 
     // Higher-priority server (bar.json port): adds ~300 ms artificial delay,
     // but still responds 200 within the 1500 ms timeout.
     const slowServer = http.createServer((_req, res) => {
+      const token = getOrCreateBarAuthToken(ccsDir);
       setTimeout(() => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          [BAR_AUTH_TOKEN_HEADER]: token,
+        });
         res.end('{}');
       }, 300);
     });
@@ -1904,8 +2050,6 @@ describe('defaultFindRunningServer: priority over response speed (GH-1500)', () 
     const slowPort = (slowServer.address() as { port: number }).port;
 
     // Seed bar.json with the slower/higher-priority port.
-    const ccsDir = path.join(tempHome, '.ccs');
-    fs.mkdirSync(ccsDir, { recursive: true });
     fs.writeFileSync(
       path.join(ccsDir, 'bar.json'),
       JSON.stringify({
@@ -1947,7 +2091,9 @@ describe('defaultFindRunningServer: priority over response speed (GH-1500)', () 
       `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
     );
     const { defaultFindRunningServer } = mod as {
-      defaultFindRunningServer: (ccsDir: string) => Promise<{ port: number; baseUrl: string } | null>;
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string } | null>;
     };
 
     let result: { port: number; baseUrl: string } | null = null;
@@ -1982,7 +2128,7 @@ describe('bar install: already-installed detection (GH-1504)', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: async (_url: string, dest: string) => {
         fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
       },
@@ -1992,7 +2138,6 @@ describe('bar install: already-installed detection (GH-1504)', () => {
         if (fs.existsSync(appPath)) return '1.0.0';
         return null;
       },
-      clearQuarantine: async () => true,
       launchBar: async () => {
         calls.push('launch');
       },
@@ -2014,13 +2159,12 @@ describe('bar install: already-installed detection (GH-1504)', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: async (_url: string, dest: string) => {
         fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: () => null,
-      clearQuarantine: async () => true,
       launchBar: async () => {
         calls.push('launch');
       },
@@ -2040,13 +2184,12 @@ describe('bar install: already-installed detection (GH-1504)', () => {
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: async (_url: string, dest: string) => {
         fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: () => '2.0.0',
-      clearQuarantine: async () => true,
       launchBar: async () => {
         calls.push('launch');
       },
@@ -2074,21 +2217,16 @@ describe('bar install: quarantine handling (GH-1504)', () => {
     };
   }
 
-  it('calls clearQuarantine with the correct app path after successful extraction', async () => {
+  it('does not clear quarantine automatically after successful extraction', async () => {
     const appsDir = path.join(tempHome, 'Applications');
-    const quarantineCalls: string[] = [];
 
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async (appPath: string) => {
-        quarantineCalls.push(appPath);
-        return true;
-      },
       launchBar: async () => {
         /* noop */
       },
@@ -2097,74 +2235,26 @@ describe('bar install: quarantine handling (GH-1504)', () => {
       getAppsDir: () => appsDir,
     });
 
-    expect(quarantineCalls).toHaveLength(1);
-    expect(quarantineCalls[0]).toMatch(/CCS Bar\.app/);
-    expect(quarantineCalls[0]).toBe(path.join(appsDir, 'CCS Bar.app'));
-
     const allOutput = consoleOutput.join('\n');
-    expect(allOutput).toMatch(/\[OK\].*[Cc]leared.*[Qq]uarantine/);
+    expect(allOutput).toMatch(/Gatekeeper note/i);
+    expect(allOutput).toMatch(/right-click.*Open/i);
+    expect(allOutput).not.toMatch(/Cleared Gatekeeper quarantine/i);
+    expect(allOutput).not.toMatch(/xattr.*quarantine/i);
   });
 
-  it('quarantine failure is non-fatal: falls back to printed xattr hint; launch handoff skipped', async () => {
-    // Launch Retry finding: when clearQuarantine fails, the entire launch handoff must be
-    // skipped (prompt and launchBar must NOT be called) and the follow-up hint must be printed.
+  it('install exits early when extraction does not produce the expected app bundle', async () => {
     const appsDir = path.join(tempHome, 'Applications');
-    let launchCalled = false;
-    let promptCalled = false;
 
     const { handleBarInstall } = await loadInstallSubcommand();
 
     await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
-      downloadAndExtract: fakeExtract(appsDir),
-      verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
-      readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async () => false,
-      launchBar: async () => {
-        launchCalled = true;
-      },
-      promptLaunch: async () => {
-        promptCalled = true;
-        return false;
-      },
-      getCcsDir: () => path.join(tempHome, '.ccs'),
-      getAppsDir: () => appsDir,
-    });
-
-    // Install still reports success
-    const allOutput = consoleOutput.join('\n');
-    expect(allOutput).toMatch(/\[OK\].*CCS Bar/);
-    expect(allOutput).not.toMatch(/\[X\]/);
-
-    // Fallback xattr hint printed
-    expect(allOutput).toMatch(/xattr.*quarantine/i);
-
-    // Launch Retry finding: prompt and launch must both be skipped
-    expect(promptCalled).toBe(false);
-    expect(launchCalled).toBe(false);
-
-    // Follow-up hint must guide the user to run `ccs bar` after manual clear
-    expect(allOutput).toMatch(/After clearing quarantine.*ccs bar/i);
-  });
-
-  it('clearQuarantine is NOT called when extraction fails (app path absent)', async () => {
-    const appsDir = path.join(tempHome, 'Applications');
-    const quarantineCalls: string[] = [];
-
-    const { handleBarInstall } = await loadInstallSubcommand();
-
-    await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       // Extraction does NOT place CCS Bar.app
       downloadAndExtract: async (_url: string, dest: string) => {
         fs.mkdirSync(dest, { recursive: true });
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async (appPath: string) => {
-        quarantineCalls.push(appPath);
-        return true;
-      },
       launchBar: async () => {
         /* noop */
       },
@@ -2174,17 +2264,16 @@ describe('bar install: quarantine handling (GH-1504)', () => {
     });
 
     // Should have returned early due to missing app
-    expect(quarantineCalls).toHaveLength(0);
     const allOutput = consoleOutput.join('\n');
     expect(allOutput).toMatch(/\[X\]/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Launch Retry finding — quarantine failure blocks entire launch handoff
+// Gatekeeper preservation — quarantine is not cleared before launch handoff
 // ---------------------------------------------------------------------------
 
-describe('bar install: launch retry finding — quarantine failure skips launch handoff', () => {
+describe('bar install: Gatekeeper quarantine preservation', () => {
   const FAKE_DOWNLOAD_URL =
     'https://github.com/kaitranntt/ccs/releases/download/ccs-bar-latest/CCS-Bar.app.zip';
 
@@ -2196,7 +2285,7 @@ describe('bar install: launch retry finding — quarantine failure skips launch 
 
   function baseDeps(appsDir: string, extra?: Partial<Record<string, unknown>>) {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '1.0.0',
@@ -2207,7 +2296,7 @@ describe('bar install: launch retry finding — quarantine failure skips launch 
     };
   }
 
-  it('clearQuarantine false: promptLaunch is NOT called', async () => {
+  it('promptLaunch is still called after install (quarantine preserved, not cleared)', async () => {
     const appsDir = path.join(tempHome, 'Applications');
     let promptCalled = false;
 
@@ -2215,63 +2304,9 @@ describe('bar install: launch retry finding — quarantine failure skips launch 
 
     await handleBarInstall([], {
       ...baseDeps(appsDir),
-      clearQuarantine: async () => false,
-      launchBar: async () => { /* noop */ },
-      promptLaunch: async () => {
-        promptCalled = true;
-        return true;
-      },
-    });
-
-    expect(promptCalled).toBe(false);
-  });
-
-  it('clearQuarantine false + --launch: launchBar is NOT called (explicit flag cannot override failed clear)', async () => {
-    // --launch does not bypass a failed quarantine clear — Gatekeeper would still block.
-    const appsDir = path.join(tempHome, 'Applications');
-    let launchCalled = false;
-
-    const { handleBarInstall } = await loadInstallSubcommand();
-
-    await handleBarInstall(['--launch'], {
-      ...baseDeps(appsDir),
-      clearQuarantine: async () => false,
       launchBar: async () => {
-        launchCalled = true;
+        /* noop */
       },
-      promptLaunch: async () => false,
-    });
-
-    expect(launchCalled).toBe(false);
-  });
-
-  it('clearQuarantine false: follow-up hint printed directing user to run `ccs bar` after manual clear', async () => {
-    const appsDir = path.join(tempHome, 'Applications');
-
-    const { handleBarInstall } = await loadInstallSubcommand();
-
-    await handleBarInstall([], {
-      ...baseDeps(appsDir),
-      clearQuarantine: async () => false,
-      launchBar: async () => { /* noop */ },
-      promptLaunch: async () => false,
-    });
-
-    const allOutput = consoleOutput.join('\n');
-    expect(allOutput).toMatch(/After clearing quarantine.*ccs bar/i);
-  });
-
-  it('clearQuarantine true: launch handoff proceeds normally (prompt called)', async () => {
-    // Successful clear must not change existing behavior — prompt is still called.
-    const appsDir = path.join(tempHome, 'Applications');
-    let promptCalled = false;
-
-    const { handleBarInstall } = await loadInstallSubcommand();
-
-    await handleBarInstall([], {
-      ...baseDeps(appsDir),
-      clearQuarantine: async () => true,
-      launchBar: async () => { /* noop */ },
       promptLaunch: async () => {
         promptCalled = true;
         return false;
@@ -2281,7 +2316,7 @@ describe('bar install: launch retry finding — quarantine failure skips launch 
     expect(promptCalled).toBe(true);
   });
 
-  it('clearQuarantine true + --launch: launchBar invoked as before', async () => {
+  it('--launch invokes launchBar', async () => {
     const appsDir = path.join(tempHome, 'Applications');
     let launchCalled = false;
 
@@ -2289,7 +2324,6 @@ describe('bar install: launch retry finding — quarantine failure skips launch 
 
     await handleBarInstall(['--launch'], {
       ...baseDeps(appsDir),
-      clearQuarantine: async () => true,
       launchBar: async () => {
         launchCalled = true;
       },
@@ -2316,11 +2350,10 @@ describe('bar install: launch flags and prompt (GH-1504)', () => {
 
   function baseDeps(appsDir: string, extra?: Partial<Record<string, unknown>>) {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async () => true,
       // isBarRunning injected as false so tests are deterministic regardless of
       // whether the real CCS Bar process is running on the test machine.
       isBarRunning: async () => false,
@@ -2431,50 +2464,6 @@ describe('bar install: launch flags and prompt (GH-1504)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Finding 1 — PATH hijack: xattr must use absolute path /usr/bin/xattr
-// (The default impl is internal; tested via injectable clearQuarantine seam.
-//  The production behavior is captured by the contract test below.)
-// ---------------------------------------------------------------------------
-
-describe('bar install: xattr absolute path contract (Finding 1)', () => {
-  const FAKE_DOWNLOAD_URL =
-    'https://github.com/kaitranntt/ccs/releases/download/ccs-bar-latest/CCS-Bar.app.zip';
-
-  function fakeExtract(appsDir: string) {
-    return async (_url: string, dest: string) => {
-      fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
-    };
-  }
-
-  it('clearQuarantine injectable dep receives the correct app path (contract test)', async () => {
-    const appsDir = path.join(tempHome, 'Applications');
-    const quarantineArgs: string[] = [];
-
-    const { handleBarInstall } = await loadInstallSubcommand();
-
-    await handleBarInstall([], {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
-      downloadAndExtract: fakeExtract(appsDir),
-      verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
-      readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async (appPath: string) => {
-        quarantineArgs.push(appPath);
-        return true;
-      },
-      launchBar: async () => { /* noop */ },
-      promptLaunch: async () => false,
-      isBarRunning: async () => false,
-      getCcsDir: () => path.join(tempHome, '.ccs'),
-      getAppsDir: () => appsDir,
-    });
-
-    // Production invokes clearQuarantine with the full app path — not a bare binary name.
-    expect(quarantineArgs).toHaveLength(1);
-    expect(quarantineArgs[0]).toBe(path.join(appsDir, 'CCS Bar.app'));
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Finding 2 — TTY gate: prompt gated on stdin.isTTY, not stdout.isTTY
 // ---------------------------------------------------------------------------
 
@@ -2490,11 +2479,10 @@ describe('bar install: stdin-TTY gate for launch prompt (Finding 2)', () => {
 
   function baseDeps(appsDir: string, extra?: Partial<Record<string, unknown>>) {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
       getAppsDir: () => appsDir,
@@ -2512,7 +2500,9 @@ describe('bar install: stdin-TTY gate for launch prompt (Finding 2)', () => {
 
     await handleBarInstall([], {
       ...baseDeps(appsDir),
-      launchBar: async () => { /* noop */ },
+      launchBar: async () => {
+        /* noop */
+      },
       // promptLaunch returning true simulates stdin-TTY + user answered yes.
       // The production defaultPromptLaunch now checks stdin.isTTY; by injecting
       // a mock that returns true we confirm this code path (prompt called, launch invoked).
@@ -2577,11 +2567,10 @@ describe('bar install: already-running detection (Finding 3)', () => {
 
   function baseDeps(appsDir: string, extra?: Partial<Record<string, unknown>>) {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: fakeExtract(appsDir),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async () => true,
       getCcsDir: () => path.join(tempHome, '.ccs'),
       getAppsDir: () => appsDir,
       ...extra,
@@ -2628,7 +2617,9 @@ describe('bar install: already-running detection (Finding 3)', () => {
     await handleBarInstall([], {
       ...baseDeps(appsDir),
       isBarRunning: async () => false,
-      launchBar: async () => { /* noop */ },
+      launchBar: async () => {
+        /* noop */
+      },
       promptLaunch: async () => {
         promptCalled = true;
         return false;
@@ -2653,7 +2644,9 @@ describe('bar install: already-running detection (Finding 3)', () => {
       ...baseDeps(appsDir),
       // Simulate pgrep error — isBarRunning returns false per spec
       isBarRunning: async () => false,
-      launchBar: async () => { /* noop */ },
+      launchBar: async () => {
+        /* noop */
+      },
       promptLaunch: async () => {
         promptCalled = true;
         return false;
@@ -2742,7 +2735,6 @@ describe('bar install: whitespace-only CFBundleShortVersionString yields null (F
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' }),
       // readAppBundleVersion intentionally omitted → uses production default
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
       promptLaunch: async () => false,
       getCcsDir: () => ccsDir,
@@ -2772,12 +2764,13 @@ describe('bar install: stage-then-swap safety (Data Loss finding)', () => {
     extra?: Partial<Record<string, unknown>>
   ): Record<string, unknown> {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '2.0.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
-      launchBar: async () => { /* noop */ },
+      launchBar: async () => {
+        /* noop */
+      },
       promptLaunch: async () => false,
       getCcsDir: () => path.join(tempHome, '.ccs'),
       getAppsDir: () => appsDir,
@@ -2966,15 +2959,16 @@ describe('bar install: silent-decline fix — hint on user decline (review findi
     extra?: Partial<Record<string, unknown>>
   ): Record<string, unknown> {
     return {
-      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL }),
+      fetchReleaseAsset: async () => ({ downloadUrl: FAKE_DOWNLOAD_URL, sha256: FAKE_SHA256 }),
       downloadAndExtract: async (_url: string, dest: string) => {
         fs.mkdirSync(path.join(dest, 'CCS Bar.app'), { recursive: true });
       },
       verifyCompat: async () => ({ compatible: true, reason: 'ok' as const }),
       readAppBundleVersion: () => '1.0.0',
-      clearQuarantine: async () => true,
       isBarRunning: async () => false,
-      launchBar: async () => { /* noop */ },
+      launchBar: async () => {
+        /* noop */
+      },
       getCcsDir: () => path.join(tempHome, '.ccs'),
       getAppsDir: () => appsDir,
       ...extra,
@@ -3024,5 +3018,405 @@ describe('bar install: silent-decline fix — hint on user decline (review findi
     expect(launchCalled).toBe(true);
     const allOutput = consoleOutput.join('\n');
     expect(allOutput).not.toMatch(/Run `ccs bar` to launch later/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Socket-level 401/403 auth-required detection (#1551 coverage gap)
+// ---------------------------------------------------------------------------
+
+describe('defaultFindRunningServer: socket-level 401/403 classifies authRequired=true', () => {
+  // These tests drive `net.connect` directly via mock.module('net') — the same
+  // pattern used by the streaming-probe test below. They prove the status-line
+  // parser correctly sets authRequired without relying on the higher-level dep
+  // injection that existing tests use (which bypasses real status-line parsing).
+
+  function makeNetMock(statusLine: string) {
+    return {
+      connect: (opts: { host: string; port: number }, onConnect: () => void): unknown => {
+        const listeners: Record<string, Array<(arg?: unknown) => void>> = {};
+        const socket = {
+          on(event: string, cb: (arg?: unknown) => void) {
+            (listeners[event] ??= []).push(cb);
+            return socket;
+          },
+          setTimeout(_ms: number, cb: () => void) {
+            // Do not fire the timeout — let the data path run.
+            void cb;
+            return socket;
+          },
+          write() {
+            return true;
+          },
+          destroy() {
+            return socket;
+          },
+        };
+        setImmediate(() => {
+          onConnect();
+          for (const cb of listeners.data ?? []) {
+            cb(Buffer.from(`${statusLine}\r\n\r\n`, 'utf8'));
+          }
+        });
+        return socket;
+      },
+    };
+  }
+
+  it('classifies HTTP/1.1 401 off the wire as authRequired=true', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+    // Seed bar.json so the probed port is deterministic and checked first.
+    fs.writeFileSync(
+      path.join(ccsDir, 'bar.json'),
+      JSON.stringify({ port: 41401, baseUrl: 'http://127.0.0.1:41401', authMode: 'loopback' })
+    );
+
+    mock.module('net', () => makeNetMock('HTTP/1.1 401 Unauthorized'));
+
+    moduleSeq++;
+    const { defaultFindRunningServer } = (await import(
+      `../../../src/commands/bar/bar-server-probe?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string; authRequired?: boolean } | null>;
+    };
+
+    const result = await Promise.race([
+      defaultFindRunningServer(ccsDir),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 500)),
+    ]);
+
+    // Must not time out and must report auth-required.
+    expect(result).not.toBe('timeout');
+    expect(result).not.toBeNull();
+    expect((result as { authRequired?: boolean }).authRequired).toBe(true);
+  });
+
+  it('classifies HTTP/1.1 403 off the wire as authRequired=true', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(ccsDir, 'bar.json'),
+      JSON.stringify({ port: 41403, baseUrl: 'http://127.0.0.1:41403', authMode: 'loopback' })
+    );
+
+    mock.module('net', () => makeNetMock('HTTP/1.1 403 Forbidden'));
+
+    moduleSeq++;
+    const { defaultFindRunningServer } = (await import(
+      `../../../src/commands/bar/bar-server-probe?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string; authRequired?: boolean } | null>;
+    };
+
+    const result = await Promise.race([
+      defaultFindRunningServer(ccsDir),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 500)),
+    ]);
+
+    expect(result).not.toBe('timeout');
+    expect(result).not.toBeNull();
+    expect((result as { authRequired?: boolean }).authRequired).toBe(true);
+  });
+
+  it('does NOT set authRequired for a 200 that supplies the correct token', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
+    // Ensure the token file exists so getOrCreateBarAuthToken reads the same value.
+    const { getOrCreateBarAuthToken: getToken } = await import(
+      `../../../src/utils/bar-auth-token?test=${Date.now()}-token-ok`
+    );
+    const token = getToken(ccsDir);
+
+    fs.writeFileSync(
+      path.join(ccsDir, 'bar.json'),
+      JSON.stringify({ port: 41200, baseUrl: 'http://127.0.0.1:41200', authMode: 'loopback' })
+    );
+
+    mock.module('net', () => ({
+      connect: (opts: { host: string; port: number }, onConnect: () => void): unknown => {
+        const listeners: Record<string, Array<(arg?: unknown) => void>> = {};
+        const socket = {
+          on(event: string, cb: (arg?: unknown) => void) {
+            (listeners[event] ??= []).push(cb);
+            return socket;
+          },
+          setTimeout(_ms: number, _cb: () => void) {
+            return socket;
+          },
+          write() {
+            return true;
+          },
+          destroy() {
+            return socket;
+          },
+        };
+        setImmediate(() => {
+          onConnect();
+          for (const cb of listeners.data ?? []) {
+            cb(
+              Buffer.from(
+                `HTTP/1.1 200 OK\r\nx-ccs-bar-token: ${token}\r\n\r\n`,
+                'utf8'
+              )
+            );
+          }
+        });
+        return socket;
+      },
+    }));
+
+    moduleSeq++;
+    const { defaultFindRunningServer } = (await import(
+      `../../../src/commands/bar/bar-server-probe?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string; authRequired?: boolean } | null>;
+    };
+
+    const result = await Promise.race([
+      defaultFindRunningServer(ccsDir),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 500)),
+    ]);
+
+    expect(result).not.toBe('timeout');
+    expect(result).not.toBeNull();
+    // Correct-token 200 must be accepted and NOT flagged as auth-required.
+    expect((result as { authRequired?: boolean }).authRequired).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultWaitForServerLive: rogue-server rejection (#1546 coverage gap)
+// ---------------------------------------------------------------------------
+
+describe('defaultWaitForServerLive: rogue 200 without matching token is rejected', () => {
+  // defaultWaitForServerLive (exported from launch-subcommand.ts) applies the
+  // same fail-closed echoedToken===token check as the discovery probe.
+  // A 200 response that does NOT echo the matching capability token must never
+  // cause the function to resolve — the liveness poll must keep retrying and
+  // eventually time out.
+  //
+  // We mock `net` (same pattern as the streaming-probe test) so the test is
+  // fully synchronous and immune to OS socket state.  The invariant is
+  // behaviour-coupled: removing the token check causes both tests to fail.
+
+  function buildNetMock(responseHeaders: string) {
+    // Returns a `net` mock whose connect() immediately delivers the response,
+    // then emits 'end'.
+    return {
+      connect: (_opts: { host: string; port: number }, onConnect: () => void): unknown => {
+        const listeners: Record<string, Array<(arg?: unknown) => void>> = {};
+        const socket = {
+          on(event: string, cb: (arg?: unknown) => void) {
+            (listeners[event] ??= []).push(cb);
+            return socket;
+          },
+          setTimeout(_ms: number, _cb: () => void) {
+            return socket;
+          },
+          write() {
+            return true;
+          },
+          destroy() {
+            return socket;
+          },
+        };
+        setImmediate(() => {
+          onConnect();
+          for (const cb of listeners.data ?? []) {
+            cb(Buffer.from(responseHeaders, 'utf8'));
+          }
+          for (const cb of listeners.end ?? []) {
+            cb();
+          }
+        });
+        return socket;
+      },
+    };
+  }
+
+  it('rogue 200 (wrong token) never resolves; poll throws timeout and launch reports [X]', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
+    // Establish the real token on disk.
+    const { getOrCreateBarAuthToken: getToken } = await import(
+      `../../../src/utils/bar-auth-token?test=${Date.now()}-rogue-net`
+    );
+    const realToken = getToken(ccsDir);
+
+    // A valid-format but wrong 64-hex token.
+    const rogueToken = 'cafebabe'.repeat(8);
+    expect(rogueToken).not.toBe(realToken); // guard: tokens must differ
+
+    // Mock net: every probe gets 200 with the WRONG token.
+    mock.module('net', () =>
+      buildNetMock(`HTTP/1.1 200 OK\r\nx-ccs-bar-token: ${rogueToken}\r\n\r\n`)
+    );
+
+    // Import defaultWaitForServerLive fresh with the mocked net.
+    // The export was added so this direct unit test is possible.
+    moduleSeq++;
+    const { defaultWaitForServerLive } = (await import(
+      `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultWaitForServerLive: (baseUrl: string) => Promise<void>;
+    };
+
+    // defaultWaitForServerLive has a hardcoded 10 s timeout — too long for a test.
+    // We race it against a 600 ms sentinel that expires before the real timeout.
+    // If the function resolves before 600 ms, the rogue check passed (test failure).
+    // If it neither resolves nor rejects by 600 ms, the loop is correctly stuck
+    // (rogue token never matches → function will eventually throw after 10 s).
+    const RACE_MS = 600;
+    const result = await Promise.race([
+      defaultWaitForServerLive(`http://127.0.0.1:9998`)
+        .then(() => 'resolved' as const)
+        .catch(() => 'rejected' as const),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), RACE_MS)),
+    ]);
+
+    // The rogue server must NEVER cause the poll to resolve.
+    expect(result).not.toBe('resolved');
+    // It either timed out (still looping) or threw early — both correct outcomes.
+    expect(result === 'timeout' || result === 'rejected').toBe(true);
+  });
+
+  it('correct-token 200 resolves defaultWaitForServerLive immediately', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+
+    const { getOrCreateBarAuthToken: getToken } = await import(
+      `../../../src/utils/bar-auth-token?test=${Date.now()}-legit-net`
+    );
+    const realToken = getToken(ccsDir);
+
+    // Mock net: every probe gets 200 with the CORRECT token.
+    mock.module('net', () =>
+      buildNetMock(`HTTP/1.1 200 OK\r\nx-ccs-bar-token: ${realToken}\r\n\r\n`)
+    );
+
+    moduleSeq++;
+    const { defaultWaitForServerLive } = (await import(
+      `../../../src/commands/bar/launch-subcommand?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultWaitForServerLive: (baseUrl: string) => Promise<void>;
+    };
+
+    // Correct token → must resolve well within the 10 s timeout.
+    const RACE_MS = 500;
+    const result = await Promise.race([
+      defaultWaitForServerLive(`http://127.0.0.1:9997`)
+        .then(() => 'resolved' as const)
+        .catch(() => 'rejected' as const),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), RACE_MS)),
+    ]);
+
+    expect(result).toBe('resolved');
+  });
+});
+
+describe('defaultFindRunningServer: streaming lower-priority probes', () => {
+  it('returns a higher-priority hit without waiting for lower-priority response bodies', async () => {
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(ccsDir, 'bar.json'),
+      JSON.stringify({ port: 41235, baseUrl: 'http://127.0.0.1:41235', authMode: 'loopback' })
+    );
+
+    let highPrioritySocketDestroyed = false;
+    let lowerPriorityProbeStarted = false;
+
+    // The probe speaks raw HTTP/1.1 over a `net` socket and resolves on the
+    // status line, so mock `net.connect` rather than a higher-level client.
+    // The high-priority port (41235) answers HTTP 200 with the auth token in the
+    // response headers (mirroring the real server, which reads from the 0600 file
+    // and includes it unconditionally — NOT echoed from the request); the
+    // lower-priority port (3000) connects but never sends a status line,
+    // emulating a non-CCS service that streams forever.
+    //
+    // The token file is written by getOrCreateBarAuthToken when ccsDir is set up
+    // in beforeEach, so we read it here the same way the mock server would.
+    const { getOrCreateBarAuthToken: getToken } = await import(
+      `../../../src/utils/bar-auth-token?test=${Date.now()}-mock`
+    );
+    const expectedToken = getToken(ccsDir);
+
+    mock.module('net', () => ({
+      connect: (opts: { host: string; port: number }, onConnect: () => void): unknown => {
+        // net.connect is called synchronously for every probe target, so the
+        // lower-priority probe is observably "started" the moment discovery
+        // fires it — even though it never receives a status line.
+        if (opts.port === 3000) lowerPriorityProbeStarted = true;
+        const listeners: Record<string, Array<(arg?: unknown) => void>> = {};
+        const socket = {
+          on(event: string, cb: (arg?: unknown) => void) {
+            (listeners[event] ??= []).push(cb);
+            return socket;
+          },
+          setTimeout() {
+            return socket;
+          },
+          write() {
+            return true;
+          },
+          destroy() {
+            if (opts.port === 41235) highPrioritySocketDestroyed = true;
+            return socket;
+          },
+        };
+
+        // Fire the connect callback asynchronously, mirroring net.connect.
+        setImmediate(() => {
+          onConnect();
+          if (opts.port === 41235) {
+            const data = listeners.data ?? [];
+            // The mock server includes the token unconditionally in the response
+            // (read from the 0600 file, not echoed from the request) — this is
+            // exactly what the production CCS Bar server does, and is the property
+            // that prevents a rogue reflector from passing the check.
+            for (const cb of data) {
+              cb(Buffer.from(`HTTP/1.1 200 OK\r\nx-ccs-bar-token: ${expectedToken}\r\n\r\n`, 'utf8'));
+            }
+          }
+          // Port 3000 never emits a status line: simulate an endlessly
+          // streaming service that must not block the higher-priority hit.
+          // Any other port stays silent and is settled by the 1.5s timeout,
+          // which the Promise.race below short-circuits.
+        });
+
+        return socket;
+      },
+    }));
+
+    moduleSeq++;
+    const { defaultFindRunningServer } = (await import(
+      `../../../src/commands/bar/bar-server-probe?test=${Date.now()}-${moduleSeq}`
+    )) as {
+      defaultFindRunningServer: (
+        ccsDir: string
+      ) => Promise<{ port: number; baseUrl: string; authRequired?: boolean } | null>;
+    };
+
+    const result = await Promise.race([
+      defaultFindRunningServer(ccsDir),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 250)),
+    ]);
+
+    expect(result).toEqual({
+      port: 41235,
+      baseUrl: 'http://127.0.0.1:41235',
+      authRequired: false,
+    });
+    expect(highPrioritySocketDestroyed).toBe(true);
+    expect(lowerPriorityProbeStarted).toBe(true);
   });
 });

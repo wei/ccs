@@ -35,7 +35,7 @@ If `CCS Bar.app` is already installed, the command shows the current version and
 
 After installation, CCS reads the app version directly from the bundle's `Info.plist` and pins it to `~/.ccs/bar/.version`. It then performs a reachability check against the bar API (`GET /api/bar/summary`). A 404 response means the running CCS server predates CCS Bar support — update CCS to a version that includes CCS Bar, then restart `ccs bar`.
 
-After a successful install, CCS asks whether to launch CCS Bar immediately (default: yes). Pass `--launch` to skip the prompt and launch right away, or `--no-launch` to suppress the prompt entirely:
+After a successful install, CCS leaves the macOS Gatekeeper quarantine marker in place so macOS can perform its normal first-launch verification. CCS then asks whether to launch CCS Bar immediately (default: yes). Pass `--launch` to skip the prompt and launch right away, or `--no-launch` to suppress the prompt entirely:
 
 ```bash
 ccs bar install --launch     # install and launch immediately
@@ -44,13 +44,9 @@ ccs bar install --no-launch  # install, skip launch prompt
 
 ### Gatekeeper note
 
-The install command automatically clears the macOS Gatekeeper quarantine attribute (`xattr -dr com.apple.quarantine`) on the downloaded app. If clearing fails for any reason, the command falls back to printing the manual command:
+The install command does not automatically clear the macOS Gatekeeper quarantine attribute on the downloaded app. This preserves macOS first-launch verification for the floating release download.
 
-```bash
-xattr -dr com.apple.quarantine "$HOME/Applications/CCS Bar.app"
-```
-
-Or right-click the app and choose Open.
+If macOS blocks the app on first launch, make an explicit trust decision by right-clicking the app and choosing Open.
 
 ## Run
 
@@ -109,7 +105,7 @@ This removes `~/Applications/CCS Bar.app` and the installed version pin. It is a
 
 - Install fails with "server predates CCS Bar" or bar API returns 404: the CCS server running does not yet include CCS Bar. Update CCS (`npm i -g ccs@latest` or equivalent), then restart `ccs bar`.
 - Server failed to start: `ccs bar` first checks whether a CCS server is already running on the candidate ports (3000, 3001, 3002, 8000, 8080) and reuses it if found. A true failure here means a non-CCS process is occupying all candidate ports. Free one of those ports and re-run `ccs bar`. Check `~/.ccs/bar/serve.log` for the background server's output.
-- App won't open (Gatekeeper): right-click and Open, or clear quarantine with the `xattr` command above.
+- App won't open (Gatekeeper): right-click the app and choose Open to make an explicit trust decision.
 - Menu shows "CCS is not running": open the menu again to let the app start the server, or run `ccs bar status` to check and `ccs bar` to start it.
 - Quota not updating: re-open the menu to force a refresh, or confirm the server is still reachable on loopback.
 
@@ -121,3 +117,28 @@ The source lives in `macos-bar/`. Contributors can build and run the logic check
 swift build                 # build all targets, including the app
 swift run ccs-bar-check     # run the logic tests
 ```
+
+## Releasing
+
+The app ships as a single floating GitHub release asset, `CCS-Bar.app.zip` under the `ccs-bar-latest` tag, which is what `ccs bar install` downloads. The version comes from one file: `macos-bar/VERSION` (a single line of semver). Bump it in the same PR when you want a new number; the asset is always the latest build regardless.
+
+### Automatic (preferred)
+
+The `Bar Release` workflow (`.github/workflows/bar-release.yml`) builds and publishes the asset automatically. It is scoped tightly so it never affects other PRs or CI:
+
+- It runs only on a push to `main` that touches `macos-bar/**`, or a manual run from the Actions tab (`workflow_dispatch`).
+- It runs only on the dedicated self-hosted macOS runner (label `ccs-bar`); the Linux CI runners never pick it up and it never competes for them.
+
+So bar changes reach users when they land on `main` (the stable cadence). To cut a release without a code change, or to re-publish, trigger the workflow manually.
+
+### Manual fallback
+
+From a macOS machine with the Swift toolchain and `gh`:
+
+```bash
+cd macos-bar
+./Scripts/package_app.sh            # uses macos-bar/VERSION; pass a version to override
+gh release upload ccs-bar-latest dist/CCS-Bar.app.zip --clobber
+```
+
+Builds are ad-hoc signed by default. Developer ID notarization (for the no-prompt public install) is available via `CCS_BAR_SIGNING=developer-id` once a paid Apple cert is configured.

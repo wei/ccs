@@ -23,6 +23,9 @@ import type { HealthReport } from '../health-service';
 import type { CliproxyUsageHistoryDetail } from '../usage/cliproxy-usage-transformer';
 import { computeBarAnalyticsFromDaily } from '../usage/bar-analytics';
 import type { DailyUsage, HourlyUsage } from '../usage/types';
+import { createLogger } from '../../services/logging';
+
+const logger = createLogger('web-server:routes:bar');
 
 // ============================================================================
 // Types
@@ -147,8 +150,17 @@ export interface BarRouterDeps {
    * async so older tests that build deps without it keep passing. The native
    * collector owns its own long-TTL cache + safety controls, so this is cheap
    * to call per request.
+   *
+   * `opts.force` is forwarded when a debounce-passing refresh=true is in flight,
+   * so the native rows are re-pulled live alongside the CLIProxy rows.
    */
-  getNativeAccountRows?: () => Promise<BarSummaryRow[]>;
+  getNativeAccountRows?: (opts?: { force?: boolean }) => Promise<BarSummaryRow[]>;
+  /**
+   * Last-known native rows from cache, with NO fetch. Used as an instant
+   * fallback when a forced live native re-pull overruns the side-load budget,
+   * so the Claude/Codex cards never vanish mid-refresh. Defaults to [].
+   */
+  getCachedNativeRows?: () => BarSummaryRow[];
 }
 
 // ============================================================================
@@ -544,14 +556,25 @@ export function createBarRouter(deps: BarRouterDeps): Router {
       const rows = await Promise.race([gather, deadline]);
 
       // Native subscription rows (Claude Code + Codex) are side-loaded AFTER the
-      // CLIProxy rows resolve, bounded so a slow/failed native fetch degrades to
-      // [] rather than blocking or erroring the response.
+      // CLIProxy rows resolve, bounded so a slow/failed native fetch degrades
+      // rather than blocking or erroring the response. Pass force so a
+      // debounce-passing refresh also re-pulls native rows live. On timeout fall
+      // back to the last-known cached native rows (NOT []) so a slow forced
+      // re-pull never momentarily drops the Claude/Codex cards; the in-flight
+      // fetch keeps warming the cache for the next poll.
       const getNative = deps.getNativeAccountRows ?? (async () => [] as BarSummaryRow[]);
-      const nativeRows = (await withTimeout(getNative(), NATIVE_SIDELOAD_TIMEOUT_MS)) ?? [];
+      const getCachedNative = deps.getCachedNativeRows ?? (() => [] as BarSummaryRow[]);
+      const nativeRows =
+        (await withTimeout(getNative({ force: doForceRefresh }), NATIVE_SIDELOAD_TIMEOUT_MS)) ??
+        getCachedNative();
 
       res.json([...rows, ...nativeRows].map(serializeBarRow));
     } catch (err) {
-      console.error('[bar-routes] /summary error:', (err as Error).message);
+      const e = err as Error;
+      logger.error('bar.summary_failed', 'Failed to build bar summary payload', {
+        refresh: req.query['refresh'] === 'true',
+        err: { name: e.name, message: e.message },
+      });
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -575,7 +598,10 @@ export function createBarRouter(deps: BarRouterDeps): Router {
       const analytics = computeBarAnalyticsFromDaily(daily ?? [], hourly ?? [], new Date());
       res.json(analytics);
     } catch (err) {
-      console.error('[bar-routes] /analytics error:', (err as Error).message);
+      const e = err as Error;
+      logger.error('bar.analytics_failed', 'Failed to compute bar analytics payload', {
+        err: { name: e.name, message: e.message },
+      });
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -597,7 +623,7 @@ import { fetchAccountQuota } from '../../cliproxy/quota/quota-fetcher';
 import { getTodayCostByAccount } from '../usage/data-aggregator';
 import { loadCliproxySnapshotDetails } from '../usage/cliproxy-snapshot-reader';
 import { getCachedDailyData, getCachedHourlyData } from '../usage/aggregator';
-import { getNativeAccountRows } from '../usage/native-quota-collector';
+import { getNativeAccountRows, getCachedNativeAccountRows } from '../usage/native-quota-collector';
 
 /** Production bar router — wired to real dependencies */
 const barRouter: Router = createBarRouter({
@@ -610,7 +636,8 @@ const barRouter: Router = createBarRouter({
   loadCliproxyDetails: loadCliproxySnapshotDetails,
   loadDailyUsage: () => getCachedDailyData(),
   loadHourlyUsage: () => getCachedHourlyData(),
-  getNativeAccountRows: () => getNativeAccountRows(),
+  getNativeAccountRows: (opts) => getNativeAccountRows(undefined, opts),
+  getCachedNativeRows: getCachedNativeAccountRows,
 });
 
 export default barRouter;
