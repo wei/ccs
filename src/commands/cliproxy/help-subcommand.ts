@@ -89,7 +89,10 @@ export async function showHelp(): Promise<void> {
       [
         ['start', 'Start CLIProxy instance in background'],
         ['restart', 'Restart CLIProxy instance'],
-        ['status [--verbose]', 'Show running CLIProxy status (--verbose adds uptime)'],
+        [
+          'status [--verbose]',
+          'Show CLIProxy status + Control Panel URL and login key (--verbose adds uptime)',
+        ],
         ['stop', 'Stop running CLIProxy instance'],
         ['doctor | diag', 'Quota diagnostics and shared project detection'],
       ],
