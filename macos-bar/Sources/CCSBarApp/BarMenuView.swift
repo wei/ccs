@@ -291,16 +291,11 @@ struct BarMenuView: View {
                 get: { selectedProfileByProvider[prov] ?? rows.first?.id },
                 set: { selectedProfileByProvider[prov] = $0 ?? rows.first?.id }))
               .frame(height: carouselHeight(rows))
-              // Page dots — one per profile in this provider's carousel.
-              HStack(spacing: 6) {
-                ForEach(rows) { row in
-                  let isCurrent = (selectedProfileByProvider[prov] ?? rows.first?.id) == row.id
-                  Circle()
-                    .fill(isCurrent ? theme.subscription : Color.secondary.opacity(0.3))
-                    .frame(width: 6, height: 6)
-                }
-              }
-              .frame(maxWidth: .infinity, alignment: .center)
+              // Page controls — clickable prev/next arrows + dots so the carousel
+              // is navigable by MOUSE (click), not just by trackpad swipe.
+              // Programmatically setting the scrollPosition binding pages the
+              // ScrollView; withAnimation gives the same feel as a swipe.
+              carouselControls(prov: prov, rows: rows)
             }
           }
         }
@@ -362,6 +357,52 @@ struct BarMenuView: View {
         return (a.displayName ?? a.provider) < (b.displayName ?? b.provider)
       }
     }
+  }
+
+  /// Prev/next arrows + clickable dots for a provider's profile carousel, so it
+  /// is navigable by MOUSE (click), not only by trackpad swipe. Selecting a page
+  /// sets the scrollPosition binding, which scrolls the ScrollView to that card.
+  @ViewBuilder private func carouselControls(prov: String, rows: [BarSummaryRow]) -> some View {
+    let currentId = selectedProfileByProvider[prov] ?? rows.first?.id
+    let curIdx = rows.firstIndex(where: { $0.id == currentId }) ?? 0
+    HStack(spacing: 7) {
+      pageArrow(systemName: "chevron.left", enabled: curIdx > 0) {
+        if curIdx > 0 { selectPage(prov, rows[curIdx - 1].id) }
+      }
+      ForEach(rows) { row in
+        Circle()
+          .fill(currentId == row.id ? theme.subscription : Color.secondary.opacity(0.3))
+          .frame(width: 6, height: 6)
+          .padding(4)  // larger mouse hit target than the 6pt dot
+          .contentShape(Rectangle())
+          .onTapGesture { selectPage(prov, row.id) }
+      }
+      pageArrow(systemName: "chevron.right", enabled: curIdx < rows.count - 1) {
+        if curIdx < rows.count - 1 { selectPage(prov, rows[curIdx + 1].id) }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .center)
+  }
+
+  /// Animate the carousel to the given profile card (mouse click or dot tap).
+  private func selectPage(_ prov: String, _ id: String) {
+    withAnimation(.easeInOut(duration: 0.2)) {
+      selectedProfileByProvider[prov] = id
+    }
+  }
+
+  @ViewBuilder private func pageArrow(
+    systemName: String, enabled: Bool, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: 9, weight: .bold))
+        .frame(width: 16, height: 16)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+    .opacity(enabled ? 0.7 : 0.25)
   }
 
   /// Height of the tallest single card in a carousel — only one card is visible
