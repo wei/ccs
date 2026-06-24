@@ -64,6 +64,11 @@ const NATIVE_QUOTA_TTL_MS = 600_000; // 10 minutes
 // an expired account is shown dimmed and re-checked at most this often instead
 // of being re-polled (and re-401'd) on every /summary refresh.
 const REAUTH_COOLDOWN_MS = NATIVE_QUOTA_TTL_MS; // 10 minutes
+// Parked rows (no on-disk creds, quotaStatus 'unsupported') re-check on a short
+// TTL — re-statting credentials is cheap, and this lets a profile that the user
+// just logged into appear within seconds instead of staying dimmed for the full
+// quota TTL. (Reauth/error rows keep the full TTL + cooldown to avoid re-401s.)
+const PARKED_TTL_MS = 30_000; // 30 seconds
 
 /** Exponential backoff base; delay = min(base * 2^n, MAX) + jitter. */
 const RETRY_BASE_MS = 1_000;
@@ -697,9 +702,12 @@ async function collectClaudeRowForProfile(
   const now = (deps.now ?? Date.now)();
   const state = getState(claudeProfileStates, profile);
 
-  // Serve from cache while within TTL — force bypasses TTL short-circuit.
-  if (!force && state.cachedRow && now - state.cachedAt < NATIVE_QUOTA_TTL_MS) {
-    return serveCached(state);
+  // Serve from cache while within TTL — force bypasses the short-circuit. Parked
+  // rows (no creds -> quotaStatus 'unsupported') use a short TTL so a fresh login
+  // is picked up within seconds instead of staying dimmed for the full quota TTL.
+  if (!force && state.cachedRow) {
+    const ttl = state.cachedRow.quotaStatus === 'unsupported' ? PARKED_TTL_MS : NATIVE_QUOTA_TTL_MS;
+    if (now - state.cachedAt < ttl) return serveCached(state);
   }
 
   // Breaker open or cooldown active -> zero network, serve stale (may be null).
@@ -722,6 +730,12 @@ async function collectClaudeRowForProfile(
 
   state.pending = (async (): Promise<BarSummaryRow | null> => {
     try {
+      // Yield once so the `state.pending = (...)()` assignment above completes
+      // before any synchronous return below runs the finally that nulls it.
+      // Without this, a sync return (e.g. the no-creds parked path) clears
+      // pending DURING assignment, leaving a stale resolved promise that the
+      // next call's coalescing check would return instead of re-evaluating.
+      await Promise.resolve();
       const creds = readCreds(profile);
 
       // No credentials file found -> emit parked row (needs auth, file absent).
@@ -854,9 +868,12 @@ async function collectCodexRowForProfile(
   const now = (deps.now ?? Date.now)();
   const state = getState(codexProfileStates, profile);
 
-  // Serve from cache while within TTL — force bypasses TTL short-circuit.
-  if (!force && state.cachedRow && now - state.cachedAt < NATIVE_QUOTA_TTL_MS) {
-    return serveCached(state);
+  // Serve from cache while within TTL — force bypasses the short-circuit. Parked
+  // rows (no auth -> quotaStatus 'unsupported') use a short TTL so a fresh login
+  // is picked up within seconds instead of staying dimmed for the full quota TTL.
+  if (!force && state.cachedRow) {
+    const ttl = state.cachedRow.quotaStatus === 'unsupported' ? PARKED_TTL_MS : NATIVE_QUOTA_TTL_MS;
+    if (now - state.cachedAt < ttl) return serveCached(state);
   }
 
   // Breaker open or cooldown active -> skip network, go to LOCAL fallback.
@@ -881,6 +898,10 @@ async function collectCodexRowForProfile(
 
   state.pending = (async (): Promise<BarSummaryRow | null> => {
     try {
+      // Yield once so the `state.pending = (...)()` assignment completes before
+      // any synchronous return below runs the finally that nulls it (otherwise a
+      // sync return leaves a stale resolved promise the next call would reuse).
+      await Promise.resolve();
       // ----------------------------------------------------------------
       // PRIMARY: live network fetch (skipped when breaker/cooldown active)
       // ----------------------------------------------------------------
@@ -898,14 +919,24 @@ async function collectCodexRowForProfile(
             state.breakerOpenUntil = 0;
             state.cooldownUntil = 0;
             state.backoffAttempt = 0;
-            // Only usable when at least one core window (5h/weekly) resolved.
+            // At least one core window (5h/weekly) resolved -> full quota row.
             if (quota.coreUsage?.fiveHour || quota.coreUsage?.weekly) {
               const row = buildCodexNetworkRow(quota, now, SURFACE_CODEX, profile);
               state.cachedRow = row;
               state.cachedAt = now;
               return { ...row, cached: false };
             }
-            // else: fall through to LOCAL fallback below.
+            // Success but no core window. The token authenticated, so this is a
+            // VALID active subscription with a sparse payload — emit an active
+            // (quota-less) row instead of parking it. Only the bare default keeps
+            // falling through to the global local session data below.
+            if (profile !== DEFAULT_PROFILE) {
+              const row = buildCodexNetworkRow(quota, now, SURFACE_CODEX, profile);
+              state.cachedRow = row;
+              state.cachedAt = now;
+              return { ...row, cached: false };
+            }
+            // else (default): fall through to LOCAL fallback below.
           } else if (quota.needsReauth) {
             // Token expired -> dimmed reauth row. Cache it and cool down so the
             // expired account is NOT re-polled (and re-401'd) every refresh; it
@@ -1201,6 +1232,10 @@ async function collectCodexRow(
 
   state.pending = (async (): Promise<BarSummaryRow | null> => {
     try {
+      // Yield once so the `state.pending = (...)()` assignment completes before
+      // any synchronous return below runs the finally that nulls it (otherwise a
+      // sync return leaves a stale resolved promise the next call would reuse).
+      await Promise.resolve();
       // ----------------------------------------------------------------
       // PRIMARY: live network fetch (skipped when breaker/cooldown active)
       // ----------------------------------------------------------------

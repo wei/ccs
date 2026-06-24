@@ -1334,4 +1334,55 @@ describe('review focus areas: reauth caching + codex local fallback', () => {
     expect(cached.find((r) => r.surface === 'ccs' && r.profile === 'ck')?.is_default).toBe(false);
     expect(cached.find((r) => r.surface === 'ccsx' && r.profile === 'ck')?.is_default).toBe(false);
   });
+
+  it('parked (no-creds) rows use a short TTL so a fresh login is detected quickly', async () => {
+    resetNativeQuotaState();
+    const clock = { now: 7_000_000 };
+    let hasCreds = false;
+    const deps = makeMultiProfileDeps({
+      clock,
+      claudeProfiles: ['work'],
+      codexProfiles: [],
+      claudeDefault: 'work',
+      credsForProfile: () => (hasCreds ? maxCreds() : null),
+      claudeFetch: async () => successQuota(),
+    });
+
+    // First poll: no creds -> parked, no network.
+    const first = await getNativeAccountRows(deps);
+    expect(first.find((r) => r.profile === 'work')?.paused).toBe(true);
+    expect(deps.claudeFetchCount()).toBe(0);
+
+    // User logs in; advance past the short parked TTL (30s) but far within the
+    // full quota TTL (10min). The parked row must NOT be served stale.
+    hasCreds = true;
+    clock.now += 31_000;
+    const second = await getNativeAccountRows(deps);
+    const work = second.find((r) => r.profile === 'work');
+    expect(work?.paused).toBe(false); // now live, not dimmed
+    expect(work?.quotaStatus).toBe('ok');
+    expect(deps.claudeFetchCount()).toBe(1); // re-checked -> fetched
+  });
+
+  it('Codex named profile with valid auth but sparse payload stays active, not parked', async () => {
+    resetNativeQuotaState();
+    const clock = { now: 7_000_000 };
+    const deps = makeMultiProfileDeps({
+      clock,
+      claudeProfiles: [],
+      codexProfiles: ['ck'],
+      codexDefault: 'default',
+      codexNativeAuth: (p) => ({ accessToken: `t-${p}`, accountId: `id-${p}` }),
+      // Successful response but NO core windows (sparse / changed payload).
+      codexNetworkFetch: async () => ({ success: true }) as CodexQuotaResult,
+    });
+
+    const rows = await getNativeAccountRows(deps);
+    const ck = rows.find((r) => r.profile === 'ck');
+    expect(ck).toBeDefined();
+    expect(ck?.paused).toBe(false); // active subscription, not parked
+    expect(ck?.needsReauth).toBe(false);
+    expect(ck?.quotaStatus).toBe('ok');
+    expect(ck?.quota_percentage).toBeNull(); // no windows, but still active
+  });
 });
