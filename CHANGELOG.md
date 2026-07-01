@@ -1,3 +1,51 @@
+## [8.7.0](https://github.com/kaitranntt/ccs/compare/v8.6.1...v8.7.0) (2026-07-01)
+
+### Features
+
+* add Requesty as an OpenAI-compatible provider ([#1604](https://github.com/kaitranntt/ccs/issues/1604)) ([a167f94](https://github.com/kaitranntt/ccs/commit/a167f94e1b07ee47f201cdbbc72c6fd0e68a8738))
+* **bar:** enumerate ccs/ccsx subscription profiles with per-profile quota ([ed86a08](https://github.com/kaitranntt/ccs/commit/ed86a089ba9102538f2aee07cd47515c7cb498ed))
+* **bar:** make the profile carousel mouse-navigable ([f57eed8](https://github.com/kaitranntt/ccs/commit/f57eed8c34817ea77f313d63029fa9e746f8b9c9))
+* **bar:** per-provider profile carousel with ccs/ccsx surface tags ([e8adcb8](https://github.com/kaitranntt/ccs/commit/e8adcb89993c3c972691679aee402e7844f58766))
+* **bar:** swipeable profile carousel and condensed alerts ([#1603](https://github.com/kaitranntt/ccs/issues/1603)) ([d7933c6](https://github.com/kaitranntt/ccs/commit/d7933c6243b7593eed524b6aa6c9c977f1e16eea)), closes [#1602](https://github.com/kaitranntt/ccs/issues/1602)
+* **websearch:** add agy provider and deprecate gemini cli fallback ([#1607](https://github.com/kaitranntt/ccs/issues/1607)) ([9dd9bf2](https://github.com/kaitranntt/ccs/commit/9dd9bf297890c1802fdc491ec6b909e1e5136a84))
+
+### Bug Fixes
+
+* **auth:** honor legacy unified default profiles ([#1619](https://github.com/kaitranntt/ccs/issues/1619)) ([2f1453e](https://github.com/kaitranntt/ccs/commit/2f1453e39785889ba82cb4183dd0a31f32349f45))
+* **bar:** align subscription carousel and collapse stale blank space ([#1600](https://github.com/kaitranntt/ccs/issues/1600)) ([62274da](https://github.com/kaitranntt/ccs/commit/62274dabfa62049a4ab0a0249e59b2d5645bc2b8)), closes [#1599](https://github.com/kaitranntt/ccs/issues/1599)
+* **bar:** cache expired profiles and gate codex local fallback to the default ([a0a2dd0](https://github.com/kaitranntt/ccs/commit/a0a2dd00face1825aff6fbc4d87b93bd38bf7f9b))
+* **bar:** keep is_default on cache-fallback rows ([7b610f0](https://github.com/kaitranntt/ccs/commit/7b610f0e8275c4d61ae3b35a891cd17ef0f8262e))
+* **bar:** lead carousel with default account, label it as the base command ([b9f6837](https://github.com/kaitranntt/ccs/commit/b9f68379135afa653f835cd36fef8a6ad515bad9))
+* **bar:** short-TTL parked rows + keep valid codex subs active ([b514986](https://github.com/kaitranntt/ccs/commit/b514986ddd947ebd4a67acd41bf6735586a72959))
+* **bar:** show the active default ccs login as the leading Claude account ([54ef540](https://github.com/kaitranntt/ccs/commit/54ef5406ce891343ef6bd7fe885ae5db59466763))
+* **bar:** tighten subscription carousel spacing ([d9bd5b6](https://github.com/kaitranntt/ccs/commit/d9bd5b6f8683bc279979156b76935fe09da5288b))
+* **bar:** use nonce-bound probe auth ([#1623](https://github.com/kaitranntt/ccs/issues/1623)) ([0180b62](https://github.com/kaitranntt/ccs/commit/0180b624539eda3e34155b4ef3adc169282d3c6a))
+* bound bar raw socket probes ([#1618](https://github.com/kaitranntt/ccs/issues/1618)) ([396e01a](https://github.com/kaitranntt/ccs/commit/396e01ab6fbaddf74949a1777dc34a0ebbdc9677))
+* **ci:** include compose parity in CI Gate ([#1614](https://github.com/kaitranntt/ccs/issues/1614)) ([58a90d3](https://github.com/kaitranntt/ccs/commit/58a90d3633ddac8a932ef71833f9c53723dda7d5))
+* **cliproxy:** clean up launch-settings overlay on synchronous spawn failure ([454e155](https://github.com/kaitranntt/ccs/commit/454e1555a7b1d50f77d77c2fd7b6690930e52260))
+* **cliproxy:** keep proxy-chain base URL authoritative over --settings env ([3847443](https://github.com/kaitranntt/ccs/commit/3847443da37aa7361b14d7e840b1fe595991cab0))
+* **cliproxy:** mask control panel login key ([#1617](https://github.com/kaitranntt/ccs/issues/1617)) ([bb7c3a4](https://github.com/kaitranntt/ccs/commit/bb7c3a4037db6ff14a9511e6638b039437d7d68b))
+* close bar launch case bypass ([#1613](https://github.com/kaitranntt/ccs/issues/1613)) ([3f1dce3](https://github.com/kaitranntt/ccs/commit/3f1dce30bc1a9743e3baab2cc479e32762d68cb5))
+* **codex:** normalize CLIProxy responses routes ([#1605](https://github.com/kaitranntt/ccs/issues/1605)) ([ba0e768](https://github.com/kaitranntt/ccs/commit/ba0e768fbf5d92d380caf1b8a1eb6cc2cf9d15fc))
+* **codex:** route codex CLI to /backend-api/codex on original CLIProxy backend ([a1a5651](https://github.com/kaitranntt/ccs/commit/a1a565177e5118bb06f1e159ee1dcd887c8ed19e)), closes [#1597](https://github.com/kaitranntt/ccs/issues/1597)
+* **cursor:** propagate daemon auth token ([#1616](https://github.com/kaitranntt/ccs/issues/1616)) ([4283c46](https://github.com/kaitranntt/ccs/commit/4283c4665c7812a7eda343b31f6ff3359f8294b8))
+* fail closed on websearch launch provisioning ([#1621](https://github.com/kaitranntt/ccs/issues/1621)) ([f2843ad](https://github.com/kaitranntt/ccs/commit/f2843ad2ce8f929e46a75ca8692d8f3bb9c0034c))
+* **glmt:** emit thinking signature as opaque string ([cbcdb6b](https://github.com/kaitranntt/ccs/commit/cbcdb6ba626ee5438502ea32eb9505735fa0963a))
+* **logging:** redact browser debug endpoint ([#1622](https://github.com/kaitranntt/ccs/issues/1622)) ([138ead0](https://github.com/kaitranntt/ccs/commit/138ead0e1ef36f96f7c7b3c515aaa308f27e389c))
+* make CCS Bar launch descriptor use private shim ([fb9509d](https://github.com/kaitranntt/ccs/commit/fb9509d9be08187077baf44d2141aadc2518e551))
+* restrict bar release workflow to main ([#1612](https://github.com/kaitranntt/ccs/issues/1612)) ([23b2c3d](https://github.com/kaitranntt/ccs/commit/23b2c3d6afd3170920bc00435f5013b7464e2795))
+* skip paused codex accounts in bar refresh ([#1620](https://github.com/kaitranntt/ccs/issues/1620)) ([0527e27](https://github.com/kaitranntt/ccs/commit/0527e276b12033a3718e1330120d020e9843188a))
+
+### Documentation
+
+* **cliproxy:** document strip-vs-overlay launch-settings siblings and model-key superset ([13e23e0](https://github.com/kaitranntt/ccs/commit/13e23e0fc5b55c10af16e00a82535ca8c71a161f))
+
+### Tests
+
+* **cliproxy:** cover launch-settings corrupt-JSON fallback and overlay permissions ([e5db374](https://github.com/kaitranntt/ccs/commit/e5db374e98ad25091bc8105acb6c83486c17dbb8))
+* **glmt:** align thinking signature coverage ([045fc93](https://github.com/kaitranntt/ccs/commit/045fc932857bdc9c52fa7573ec1bbd81a951b6a0))
+* **glmt:** assert thinking signature is a non-empty opaque string ([37d2bae](https://github.com/kaitranntt/ccs/commit/37d2bae001cc52753696c575d86a4889591d8789))
+
 ## [8.6.1](https://github.com/kaitranntt/ccs/compare/v8.6.0...v8.6.1) (2026-06-23)
 
 ### Bug Fixes
